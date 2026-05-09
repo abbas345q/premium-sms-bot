@@ -262,11 +262,32 @@ def handle_query(call):
                 if uid not in order_db[m_key]: order_db[m_key].append(uid)
                 save_data(ORDERS_FILE, order_db)
             except: pass
+            
+            # --- UPDATED SECTION START: Number Button with Click to Copy ---
             markup = types.InlineKeyboardMarkup(row_width=1)
-            markup.add(types.InlineKeyboardButton("🔄 CHANGE NUMBER", callback_data=f"sel_{country}"),
-                       types.InlineKeyboardButton("🌐 CHANGE COUNTRY", callback_data="back_c"),
-                       types.InlineKeyboardButton("🚀 GET OTP", url=OTP_GROUP_LINK))
-            bot.edit_message_text(f"🎁 **Number for {country.upper()}**\n━━━━━━━━━━━━━━\n`{num}`\n━━━━━━━━━━━━━━\n💡 Tap to copy!", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+            # নাম্বার বাটন যা ক্লিক করলে অটো কপি হবে
+            copy_button = types.InlineKeyboardButton(
+                text=f"📱 {num}", 
+                copy_text=num  # এই প্যারামিটারটি সরাসরি নাম্বার কপি করবে
+            )
+            markup.add(copy_button)
+            
+            # নিচের কন্ট্রোল বাটনগুলো
+            markup.add(
+                types.InlineKeyboardButton("🔄 CHANGE NUMBER", callback_data=f"sel_{country}"),
+                types.InlineKeyboardButton("🌐 CHANGE COUNTRY", callback_data="back_c"),
+                types.InlineKeyboardButton("🚀 GET OTP", url=OTP_GROUP_LINK)
+            )
+            
+            msg_text = (f"🎁 **Number for {country.upper()}**\n"
+                        f"━━━━━━━━━━━━━━━━━━━━━\n"
+                        f"👉 নিচের বাটনে ক্লিক করে নাম্বারটি কপি করুন।\n"
+                        f"━━━━━━━━━━━━━━━━━━━━━\n"
+                        f"💡 নাম্বারটি কপি করে আপনার কাঙ্ক্ষিত অ্যাপে ব্যবহার করুন।")
+            
+            bot.edit_message_text(msg_text, call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+            # --- UPDATED SECTION END ---
+            
     elif call.data == "back_c": send_country_list(call.message.chat.id, call.message.message_id)
 
 def process_add_chan(message):
@@ -284,7 +305,6 @@ def update_with(message):
     try: config['min_withdraw'] = float(message.text); save_data(CONFIG_FILE, config); bot.send_message(message.chat.id, "✅ Updated")
     except: bot.send_message(message.chat.id, "❌ Error")
 def send_country_list(chat_id, message_id=None):
-    # ফাইল থেকে লেটেস্ট ডাটা লোড করা নিশ্চিত করা
     current_db = load_data(DB_FILE, {})
     active = {k: v for k, v in current_db.items() if isinstance(v, list) and len(v) > 0}
     
@@ -304,6 +324,4 @@ def send_country_list(chat_id, message_id=None):
 
 if __name__ == "__main__":
     print("--- PREMIUM BOT IS ONLINE ---")
-    # ক্লাউডে বট রানিং রাখার জন্য infinity_polling ব্যবহার করা হয়েছে
     bot.infinity_polling(timeout=10, long_polling_timeout=5)
-                                         
