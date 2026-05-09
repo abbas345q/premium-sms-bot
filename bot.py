@@ -221,6 +221,7 @@ def handle_query(call):
             handle_start(call.message)
         else:
             bot.answer_callback_query(call.id, "❌ আপনি সব চ্যানেলে জয়েন করেননি!", show_alert=True)
+    
     elif call.data == "conf_chan":
         markup = types.InlineKeyboardMarkup(row_width=1)
         markup.add(types.InlineKeyboardButton("➕ Add New Channel", callback_data="add_chan"))
@@ -228,30 +229,37 @@ def handle_query(call):
             markup.add(types.InlineKeyboardButton(f"🗑️ Delete {ch['username']}", callback_data=f"delchan_{i}"))
         markup.add(types.InlineKeyboardButton("🔙 Back", callback_data="back_admin"))
         bot.edit_message_text("⚙️ **Manage Channels:**", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+    
     elif call.data == "add_chan":
         msg = bot.send_message(call.message.chat.id, "⌨️ Send `@Username Link` (Example: `@MyGroup https://t.me/MyGroup`)")
         bot.register_next_step_handler(msg, process_add_chan)
+    
     elif call.data.startswith("delchan_"):
         idx = int(call.data.split("_")[1]); config['channels'].pop(idx); save_data(CONFIG_FILE, config); handle_query(call)
+    
     elif call.data == "back_admin":
         bot.delete_message(call.message.chat.id, call.message.message_id); admin_settings(call.message)
+    
     elif call.data == "conf_bc":
         msg = bot.send_message(call.message.chat.id, "📢 Send Broadcast:"); bot.register_next_step_handler(msg, do_broadcast)
+    
     elif call.data == "conf_ref":
         msg = bot.send_message(call.message.chat.id, "Refer Bonus:"); bot.register_next_step_handler(msg, update_ref)
+    
     elif call.data == "conf_with":
         msg = bot.send_message(call.message.chat.id, "Min Withdraw:"); bot.register_next_step_handler(msg, update_with)
+    
     elif call.data == "conf_clear":
         current_db = load_data(DB_FILE, {})
         markup = types.InlineKeyboardMarkup()
         for k in current_db.keys():
             if current_db[k]: markup.add(types.InlineKeyboardButton(f"🗑️ {k}", callback_data=f"rmv_{k}"))
         bot.edit_message_text("Clear stock:", call.message.chat.id, call.message.message_id, reply_markup=markup)
+    
     elif call.data.startswith('rmv_'):
         c = call.data.replace('rmv_', ''); current_db = load_data(DB_FILE, {}); current_db[c] = []
         save_data(DB_FILE, current_db); admin_settings(call.message)
     
-    # --- এই অংশটি ফিক্স করা হয়েছে ---
     elif call.data.startswith('sel_'):
         if not is_user_joined_all(call.from_user.id):
             bot.answer_callback_query(call.id, "❌ জয়েন করেননি!", show_alert=True); return
@@ -264,7 +272,11 @@ def handle_query(call):
             save_data(DB_FILE, current_db)
             
             try:
-                parsed = phonenumbers.parse(num); c_code = str(parsed.country_code); l3 = num[-3:]; m_key = f"{c_code}_{l3}"
+                parsed = phonenumbers.parse(num)
+                c_code = str(parsed.country_code)
+                l3 = str(num)[-3:]
+                m_key = f"{c_code}_{l3}"
+                
                 order_db = load_data(ORDERS_FILE, {})
                 if m_key not in order_db: order_db[m_key] = []
                 if uid not in order_db[m_key]: order_db[m_key].append(uid)
@@ -272,9 +284,10 @@ def handle_query(call):
             except: pass
             
             markup = types.InlineKeyboardMarkup(row_width=1)
-            # ডিরেক্ট কপি বাটন (লেটেস্ট API অনুযায়ী)
+            # Safe copy_text বাটন
             try:
-                markup.add(types.InlineKeyboardButton(text=f"📱 {num}", copy_text=num))
+                copy_btn = types.InlineKeyboardButton(text=f"📱 {num}", copy_text=num)
+                markup.add(copy_btn)
             except:
                 markup.add(types.InlineKeyboardButton(text=f"📱 {num}", callback_data="none"))
 
@@ -298,7 +311,6 @@ def handle_query(call):
     elif call.data == "back_c": 
         send_country_list(call.message.chat.id, call.message.message_id)
 
-# --- বাকি ফাংশনগুলো আগের মতোই থাকবে ---
 def process_add_chan(message):
     try:
         parts = message.text.split()
@@ -319,10 +331,12 @@ def send_country_list(chat_id, message_id=None):
     active = {k: v for k, v in current_db.items() if isinstance(v, list) and len(v) > 0}
     
     if not active:
+        msg = "❌ বর্তমানে কোনো নাম্বার স্টক নেই।"
         if message_id:
-            bot.edit_message_text("❌ বর্তমানে কোনো নাম্বার স্টক নেই।", chat_id, message_id)
+            try: bot.edit_message_text(msg, chat_id, message_id)
+            except: pass
         else:
-            bot.send_message(chat_id, "❌ বর্তমানে কোনো নাম্বার স্টক নেই।")
+            bot.send_message(chat_id, msg)
         return
 
     markup = types.InlineKeyboardMarkup(row_width=1)
@@ -338,4 +352,4 @@ def send_country_list(chat_id, message_id=None):
 if __name__ == "__main__":
     print("--- PREMIUM BOT IS ONLINE ---")
     bot.infinity_polling(timeout=10, long_polling_timeout=5)
-            
+        
