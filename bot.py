@@ -284,13 +284,23 @@ def update_with(message):
     try: config['min_withdraw'] = float(message.text); save_data(CONFIG_FILE, config); bot.send_message(message.chat.id, "✅ Updated")
     except: bot.send_message(message.chat.id, "❌ Error")
 def send_country_list(chat_id, message_id=None):
+    # ফাইল থেকে লেটেস্ট ডাটা লোড করা নিশ্চিত করা
     current_db = load_data(DB_FILE, {})
-    active = {k: v for k, v in current_db.items() if v and len(v) > 0}
-    if not active: bot.send_message(chat_id, "❌ Stock Empty."); return
+    active = {k: v for k, v in current_db.items() if isinstance(v, list) and len(v) > 0}
+    
+    if not active:
+        bot.send_message(chat_id, "❌ বর্তমানে কোনো নাম্বার স্টক নেই।")
+        return
+
     markup = types.InlineKeyboardMarkup(row_width=1)
-    for c in sorted(active.keys()): markup.add(types.InlineKeyboardButton(f"{c} ({len(active[c])})", callback_data=f"sel_{c}"))
-    if message_id: bot.edit_message_text("📍 **Select Country:**", chat_id, message_id, reply_markup=markup)
-    else: bot.send_message(chat_id, "📍 **Select Country:**", reply_markup=markup)
+    for c in sorted(active.keys()):
+        markup.add(types.InlineKeyboardButton(f"{c} ({len(active[c])})", callback_data=f"sel_{c}"))
+    
+    if message_id:
+        try: bot.edit_message_text("📍 **Select Country:**", chat_id, message_id, reply_markup=markup, parse_mode="Markdown")
+        except: pass
+    else:
+        bot.send_message(chat_id, "📍 **Select Country:**", reply_markup=markup, parse_mode="Markdown")
 
 if __name__ == "__main__":
     print("--- PREMIUM BOT IS ONLINE ---")
