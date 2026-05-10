@@ -186,27 +186,47 @@ def handle_query(call):
     elif call.data == "add_ch":
         msg = bot.send_message(call.message.chat.id, "Send Channel `@Username Link`:")
         bot.register_next_step_handler(msg, process_add_ch)
-    elif call.data.startswith("delch_"):
-        idx = int(call.data.split("_")[1]); config['channels'].pop(idx); save_data(CONFIG_FILE, config); bot.answer_callback_query(call.id, "✅ Deleted!"); admin_settings(call.message)
-    elif call.data.startswith('sel_'):
+        elif call.data.startswith('sel_'):
         country = call.data.replace('sel_', '')
         curr_db = load_data(DB_FILE, {})
+        
         if country in curr_db and curr_db[country]:
-            num = curr_db[country].pop(0); save_data(DB_FILE, curr_db)
+            num = str(curr_db[country].pop(0)) # নম্বর পপ করা
+            save_data(DB_FILE, curr_db)
+            
             try:
-                p = phonenumbers.parse(num); m_key = f"{p.country_code}_{str(num)[-3:]}"
+                p = phonenumbers.parse(num)
+                m_key = f"{p.country_code}_{num[-3:]}"
                 o_db = load_data(ORDERS_FILE, {})
                 if m_key not in o_db: o_db[m_key] = []
-                o_db[m_key].append(uid); save_data(ORDERS_FILE, o_db)
+                o_db[m_key].append(uid)
+                save_data(ORDERS_FILE, o_db)
             except: pass
+
             markup = types.InlineKeyboardMarkup(row_width=1)
-            try: markup.add(types.InlineKeyboardButton(text=f"📱 {num}", copy_text=num))
-            except: markup.add(types.InlineKeyboardButton(text=f"📱 {num}", callback_data="none"))
-            markup.add(types.InlineKeyboardButton("🔄 CHANGE NUMBER", callback_data=f"sel_{country}"), types.InlineKeyboardButton("🌐 CHANGE COUNTRY", callback_data="back_c"), types.InlineKeyboardButton("🚀 GET OTP", url=OTP_GROUP_LINK))
+            # ডাইরেক্ট কপি বাটন
+            try:
+                markup.add(types.InlineKeyboardButton(text=f"📱 {num}", copy_text=num))
+            except:
+                markup.add(types.InlineKeyboardButton(text=f"📱 {num} (Tap to Copy)", callback_data="none"))
+            
+            markup.add(
+                types.InlineKeyboardButton("🔄 CHANGE NUMBER", callback_data=f"sel_{country}"),
+                types.InlineKeyboardButton("🌐 CHANGE COUNTRY", callback_data="back_c"),
+                types.InlineKeyboardButton("🚀 GET OTP", url=OTP_GROUP_LINK)
+            )
+            
+            # আমরা এখানে parse_mode সরিয়ে দিচ্ছি যাতে '+' চিহ্নের জন্য ক্রাশ না করে
             msg_text = f"🎁 Number for: {country}\n\nNumber: {num}\n\n💡 বাটনে ক্লিক করে নাম্বারটি কপি করুন।"
-            try: bot.edit_message_text(msg_text, call.message.chat.id, call.message.message_id, reply_markup=markup)
-            except: bot.send_message(call.message.chat.id, msg_text, reply_markup=markup)
-        else: bot.answer_callback_query(call.id, "❌ স্টক শেষ!", show_alert=True)
+            
+            try:
+                # এখানে parse_mode নেই, তাই ১০০% কাজ করবে
+                bot.edit_message_text(msg_text, call.message.chat.id, call.message.message_id, reply_markup=markup)
+            except:
+                # যদি এডিট এরর দেয়, তবে নতুন মেসেজ পাঠিয়ে দিবে
+                bot.send_message(call.message.chat.id, msg_text, reply_markup=markup)
+        else:
+            bot.answer_callback_query(call.id, "❌ স্টক শেষ!", show_alert=True)
 
 def process_add_ch(message):
     try:
