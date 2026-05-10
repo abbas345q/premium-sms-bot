@@ -75,7 +75,6 @@ def detect_country(num_str):
 def handle_start(message):
     uid = str(message.from_user.id)
     name = message.from_user.first_name
-    
     if not is_user_joined_all(message.from_user.id):
         markup = types.InlineKeyboardMarkup(row_width=1)
         for i, ch in enumerate(config['channels'], 1):
@@ -83,9 +82,7 @@ def handle_start(message):
         markup.add(types.InlineKeyboardButton("✅ Verify Join", callback_data="verify_join"))
         bot.send_message(message.chat.id, "✨ **সার্ভিসটি ব্যবহার করতে নিচের চ্যানেলে জয়েন করুন।**", reply_markup=markup, parse_mode="Markdown")
         return
-
     u_data, is_new = get_user(message.from_user.id, name)
-
     args = message.text.split()
     if len(args) > 1 and is_new:
         ref_id = args[1]
@@ -95,18 +92,8 @@ def handle_start(message):
             save_data(USER_FILE, users)
             try: bot.send_message(ref_id, f"🎊 Referral Bonus Earned! {config['ref_bonus']} BDT")
             except: pass
-
     if is_new:
-        welcome_text = (
-            f"👑 **Welcome , {name}!**\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"🌟 **Premium OTP & SMS Hub**-এ আপনাকে স্বাগতম।\n\n"
-            f"🚀 **আমাদের বিশেষত্ব:**\n"
-            f"⚡️ আল্ট্রা-ফাস্ট ওটিপি ডেলিভারি সিস্টেম।\n"
-            f"🌍 বিশ্বের ১০০+ দেশের নাম্বার ।\n"
-            f"🛡 ১০০% নিরাপদ এবং প্রাইভেট ট্রানজেকশন।\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        )
+        welcome_text = (f"👑 **Welcome , {name}!**\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n🌟 **Premium OTP & SMS Hub**-এ আপনাকে স্বাগতম।\n\n🚀 **আমাদের বিশেষত্ব:**\n⚡️ আল্ট্রা-ফাস্ট ওটিপি ডেলিভারি সিস্টেম।\n🌍 বিশ্বের ১০০+ দেশের নাম্বার।\n🛡 ১০০% নিরাপদ এবং প্রাইভেট ট্রানজেকশন।\n━━━━━━━━━━━━━━━━━━━━━━━━━━")
         bot.send_message(message.chat.id, welcome_text, reply_markup=main_keyboard(), parse_mode="Markdown")
     else:
         send_country_list(message.chat.id)
@@ -130,7 +117,6 @@ def handle_all(message):
     if not is_user_joined_all(message.from_user.id): return
     uid = str(message.from_user.id)
     u_data, _ = get_user(uid)
-
     if message.text == "📞 Get Number":
         send_country_list(message.chat.id)
     elif message.text == "💰 Balance":
@@ -144,7 +130,6 @@ def handle_all(message):
         current_db = load_data(DB_FILE, {})
         active = [f"✅ {k} ({len(v)})" for k, v in current_db.items() if v and len(v) > 0]
         bot.send_message(message.chat.id, "🌍 **Stock List:**\n\n" + "\n".join(active) if active else "❌ Empty", parse_mode="Markdown")
-    
     elif int(message.from_user.id) == ADMIN_ID:
         txt = message.text if message.text else ""
         if message.content_type == 'document':
@@ -164,7 +149,6 @@ def handle_all(message):
 @bot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
     uid = str(call.from_user.id)
-
     if call.data == "verify_join":
         if is_user_joined_all(call.from_user.id):
             bot.answer_callback_query(call.id, "✅ Verified!")
@@ -172,38 +156,9 @@ def handle_query(call):
             handle_start(call.message)
         else:
             bot.answer_callback_query(call.id, "❌ জয়েন করেননি!", show_alert=True)
-
-    elif call.data.startswith('sel_'):
-        country = call.data.replace('sel_', '')
-        curr_db = load_data(DB_FILE, {})
-        if country in curr_db and curr_db[country]:
-            num = curr_db[country].pop(0)
-            save_data(DB_FILE, curr_db)
-            try:
-                p = phonenumbers.parse(num); m_key = f"{p.country_code}_{str(num)[-3:]}"
-                o_db = load_data(ORDERS_FILE, {})
-                if m_key not in o_db: o_db[m_key] = []
-                o_db[m_key].append(uid); save_data(ORDERS_FILE, o_db)
-            except: pass
-
-            markup = types.InlineKeyboardMarkup(row_width=1)
-            try: markup.add(types.InlineKeyboardButton(text=f"📱 {num}", copy_text=num))
-            except: markup.add(types.InlineKeyboardButton(text=f"📱 {num}", callback_data="none"))
-            markup.add(
-                types.InlineKeyboardButton("🔄 CHANGE NUMBER", callback_data=f"sel_{country}"),
-                types.InlineKeyboardButton("🌐 CHANGE COUNTRY", callback_data="back_c"),
-                types.InlineKeyboardButton("🚀 GET OTP", url=OTP_GROUP_LINK)
-            )
-            msg_text = f"🎁 Number for: {country}\n\nNumber: `{num}`\n\n💡 বাটনে ক্লিক করে নাম্বারটি কপি করুন।"
-            try: bot.edit_message_text(msg_text, call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
-            except: bot.send_message(call.message.chat.id, msg_text, reply_markup=markup, parse_mode="Markdown")
-        else:
-            bot.answer_callback_query(call.id, "❌ স্টক শেষ!", show_alert=True)
-
     elif call.data == "back_c":
         bot.answer_callback_query(call.id)
         send_country_list(call.message.chat.id, call.message.message_id)
-
     elif call.data == "conf_ref":
         msg = bot.send_message(call.message.chat.id, "Enter Refer Bonus Amount:")
         bot.register_next_step_handler(msg, lambda m: update_conf(m, 'ref_bonus'))
@@ -226,34 +181,43 @@ def handle_query(call):
             if v: markup.add(types.InlineKeyboardButton(f"🗑️ {k} ({len(v)})", callback_data=f"rmv_{k}"))
         bot.edit_message_text("🗑️ Select country to clear stock:", call.message.chat.id, call.message.message_id, reply_markup=markup)
     elif call.data.startswith('rmv_'):
-        c = call.data.replace('rmv_', '')
-        curr_db = load_data(DB_FILE, {})
-        curr_db[c] = []
-        save_data(DB_FILE, curr_db)
-        bot.answer_callback_query(call.id, f"✅ {c} Cleared!")
-        admin_settings(call.message)
+        c = call.data.replace('rmv_', ''); curr_db = load_data(DB_FILE, {}); curr_db[c] = []
+        save_data(DB_FILE, curr_db); bot.answer_callback_query(call.id, f"✅ {c} Cleared!"); admin_settings(call.message)
     elif call.data == "add_ch":
         msg = bot.send_message(call.message.chat.id, "Send Channel `@Username Link`:")
         bot.register_next_step_handler(msg, process_add_ch)
     elif call.data.startswith("delch_"):
-        idx = int(call.data.split("_")[1])
-        config['channels'].pop(idx)
-        save_data(CONFIG_FILE, config)
-        bot.answer_callback_query(call.id, "✅ Deleted!")
-        admin_settings(call.message)
+        idx = int(call.data.split("_")[1]); config['channels'].pop(idx); save_data(CONFIG_FILE, config); bot.answer_callback_query(call.id, "✅ Deleted!"); admin_settings(call.message)
+    elif call.data.startswith('sel_'):
+        country = call.data.replace('sel_', '')
+        curr_db = load_data(DB_FILE, {})
+        if country in curr_db and curr_db[country]:
+            num = curr_db[country].pop(0); save_data(DB_FILE, curr_db)
+            try:
+                p = phonenumbers.parse(num); m_key = f"{p.country_code}_{str(num)[-3:]}"
+                o_db = load_data(ORDERS_FILE, {})
+                if m_key not in o_db: o_db[m_key] = []
+                o_db[m_key].append(uid); save_data(ORDERS_FILE, o_db)
+            except: pass
+            markup = types.InlineKeyboardMarkup(row_width=1)
+            try: markup.add(types.InlineKeyboardButton(text=f"📱 {num}", copy_text=num))
+            except: markup.add(types.InlineKeyboardButton(text=f"📱 {num}", callback_data="none"))
+            markup.add(types.InlineKeyboardButton("🔄 CHANGE NUMBER", callback_data=f"sel_{country}"), types.InlineKeyboardButton("🌐 CHANGE COUNTRY", callback_data="back_c"), types.InlineKeyboardButton("🚀 GET OTP", url=OTP_GROUP_LINK))
+            msg_text = f"🎁 Number for: {country}\n\nNumber: {num}\n\n💡 বাটনে ক্লিক করে নাম্বারটি কপি করুন।"
+            try: bot.edit_message_text(msg_text, call.message.chat.id, call.message.message_id, reply_markup=markup)
+            except: bot.send_message(call.message.chat.id, msg_text, reply_markup=markup)
+        else: bot.answer_callback_query(call.id, "❌ স্টক শেষ!", show_alert=True)
 
 def process_add_ch(message):
     try:
         parts = message.text.split()
         config['channels'].append({"username": parts[0], "link": parts[1]})
-        save_data(CONFIG_FILE, config)
-        bot.send_message(message.chat.id, "✅ Channel Added!")
+        save_data(CONFIG_FILE, config); bot.send_message(message.chat.id, "✅ Channel Added!")
     except: bot.send_message(message.chat.id, "❌ Error. Use: `@User https://link`")
 
 def update_conf(message, key):
     try:
-        config[key] = float(message.text); save_data(CONFIG_FILE, config)
-        bot.send_message(message.chat.id, "✅ Updated Successfully!")
+        config[key] = float(message.text); save_data(CONFIG_FILE, config); bot.send_message(message.chat.id, "✅ Updated Successfully!")
     except: bot.send_message(message.chat.id, "❌ Invalid Input.")
 
 def do_broadcast(message):
@@ -282,4 +246,4 @@ def send_country_list(chat_id, message_id=None):
 
 if __name__ == "__main__":
     bot.infinity_polling()
-            
+    
