@@ -63,15 +63,17 @@ def main_keyboard():
     markup.row(types.KeyboardButton("🌍 Available Countries"))
     return markup
 
-# --- UTILS ---
-def detect_country(num_str):
+def detect_country_flag(num_str):
     try:
         full_num = f"+{num_str.lstrip('+')}"
         parsed = phonenumbers.parse(full_num)
-        name = geocoder.description_for_number(parsed, "en")
-        return f"📍 {name}" if name else f"📍 Zone +{parsed.country_code}"
-    except: return f"📍 Zone +{num_str[:3]}"
+        region = phonenumbers.region_code_for_number(parsed)
+        if region:
+            return "".join(chr(ord(c) + 127397) for c in region.upper())
+        return "📍"
+    except: return "📍"
 
+# --- UTILS ---
 def send_country_list(chat_id, message_id=None):
     curr_db = load_data(DB_FILE, {})
     active = {k: v for k, v in curr_db.items() if isinstance(v, list) and len(v) > 0}
@@ -99,11 +101,11 @@ def handle_start(message):
         for i, ch in enumerate(config.get('channels', []), 1):
             markup.add(types.InlineKeyboardButton(f"📢 Join Channel {i}", url=ch['link']))
         markup.add(types.InlineKeyboardButton("✅ Verify Join", callback_data="verify_join"))
-        bot.send_message(message.chat.id, "✨ **জয়েন করুন:**", reply_markup=markup)
+        bot.send_message(message.chat.id, "✨ **সার্ভিসটি ব্যবহার করতে নিচের চ্যানেলে জয়েন করুন।**", reply_markup=markup)
         return
     u_data, is_new = get_user(message.from_user.id, name)
     if is_new:
-        bot.send_message(message.chat.id, f"👑 **Welcome {name}!**", reply_markup=main_keyboard())
+        bot.send_message(message.chat.id, f"👑 **Welcome {name}!**\nPremium OTP প্যানেলে আপনাকে স্বাগতম।", reply_markup=main_keyboard())
     else:
         send_country_list(message.chat.id)
 
@@ -130,10 +132,15 @@ def handle_all(message):
         send_country_list(message.chat.id)
     elif message.text == "💰 Balance":
         bot.send_message(message.chat.id, f"💳 Balance: {u_data['balance']} BDT")
+    elif message.text == "🎁 Refer & Earn":
+        bot_user = (bot.get_me()).username
+        bot.send_message(message.chat.id, f"🎁 **Refer Link:** https://t.me/{bot_user}?start={uid}")
+    elif message.text == "💸 Withdraw":
+        bot.send_message(message.chat.id, f"❌ Min Withdraw: {config['min_withdraw']} BDT")
     elif message.text == "🌍 Available Countries":
         current_db = load_data(DB_FILE, {})
-        active = [f"✅ {k} ({len(v)})" for k, v in current_db.items() if v]
-        bot.send_message(message.chat.id, "\n".join(active) if active else "Empty")
+        active = [f"✅ {k} ({len(v)})" for k, v in current_db.items() if v and len(v) > 0]
+        bot.send_message(message.chat.id, "🌍 **Stock List:**\n\n" + "\n".join(active) if active else "Empty")
     
     elif int(message.from_user.id) == ADMIN_ID:
         txt = message.text if message.text else ""
@@ -145,9 +152,12 @@ def handle_all(message):
             curr_db = load_data(DB_FILE, {})
             added = 0
             for r in found:
-                c = detect_country(r); n = f"+{r.lstrip('+')}"
-                if c not in curr_db: curr_db[c] = []
-                if n not in curr_db[c]: curr_db[c].append(n); added += 1
+                flag = detect_country_flag(r)
+                name = geocoder.description_for_number(phonenumbers.parse(f"+{r.lstrip('+')}"), "en")
+                c_name = f"{flag} {name}" if name else f"📍 Zone +{r[:3]}"
+                if c_name not in curr_db: curr_db[c_name] = []
+                num = f"+{r.lstrip('+')}"
+                if num not in curr_db[c_name]: curr_db[c_name].append(num); added += 1
             save_data(DB_FILE, curr_db)
             bot.reply_to(message, f"✅ Added {added} numbers.")
 
@@ -172,7 +182,6 @@ def handle_query(call):
             num = str(curr_db[country].pop(0))
             save_data(DB_FILE, curr_db)
             
-            # কিবোর্ড তৈরি (সফল কপি বাটনসহ)
             markup = types.InlineKeyboardMarkup(row_width=1)
             try:
                 markup.add(types.InlineKeyboardButton(text=f"📱 {num}", copy_text=num))
@@ -186,22 +195,33 @@ def handle_query(call):
             )
             
             msg_text = f"🎁 Number for: {country}\n\nNumber: `{num}`\n\n💡 বাটনে ক্লিক করে কপি করুন।"
-            
             try:
-                bot.edit_message_text(msg_text, chat_id, message_id, reply_markup=markup, parse_mode="Markdown")
+                bot.edit_message_text(text=msg_text, chat_id=chat_id, message_id=message_id, reply_markup=markup, parse_mode="Markdown")
             except:
-                bot.send_message(chat_id, msg_text, reply_markup=markup, parse_mode="Markdown")
+                bot.send_message(chat_id, msg_text, reply_markup=markup)
         else:
             bot.answer_callback_query(call.id, "❌ স্টক শেষ!", show_alert=True)
 
     elif call.data == "back_c":
         send_country_list(chat_id, message_id)
-    
-    # --- ADMIN CALLBACKS ---
-    elif call.data == "conf_bc":
-        msg = bot.send_message(chat_id, "📢 Send Message:")
-        bot.register_next_step_handler(msg, lambda m: [bot.send_message(u, m.text) for u in load_data(USER_FILE, {}).keys()])
-    
+
+    elif call.data == "conf_chan":
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        markup.add(types.InlineKeyboardButton("➕ Add Channel", callback_data="add_ch"))
+        for i, ch in enumerate(config.get('channels', [])):
+            markup.add(types.InlineKeyboardButton(f"🗑️ Delete {ch['username']}", callback_data=f"delch_{i}"))
+        bot.edit_message_text("⚙️ Manage Channels:", chat_id, message_id, reply_markup=markup)
+
+    elif call.data == "add_ch":
+        msg = bot.send_message(chat_id, "Send Channel `@Username Link`:")
+        bot.register_next_step_handler(msg, process_add_ch)
+
+    elif call.data.startswith("delch_"):
+        idx = int(call.data.split("_")[1])
+        config['channels'].pop(idx)
+        save_data(CONFIG_FILE, config)
+        admin_settings(call.message)
+
     elif call.data == "conf_clear":
         curr_db = load_data(DB_FILE, {})
         markup = types.InlineKeyboardMarkup()
@@ -211,7 +231,26 @@ def handle_query(call):
 
     elif call.data.startswith('rmv_'):
         c = call.data.replace('rmv_', ''); curr_db = load_data(DB_FILE, {}); curr_db[c] = []
-        save_data(DB_FILE, curr_db); bot.send_message(chat_id, "✅ Stock Cleared!")
+        save_data(DB_FILE, curr_db); admin_settings(call.message)
+
+    elif call.data == "conf_bc":
+        msg = bot.send_message(chat_id, "📢 Send Broadcast Message:")
+        bot.register_next_step_handler(msg, do_broadcast)
+
+def process_add_ch(message):
+    try:
+        parts = message.text.split()
+        config['channels'].append({"username": parts[0], "link": parts[1]})
+        save_data(CONFIG_FILE, config); bot.send_message(message.chat.id, "✅ Added!")
+    except: pass
+
+def do_broadcast(message):
+    u_list = load_data(USER_FILE, {})
+    for uid in u_list.keys():
+        try: bot.send_message(uid, message.text); time.sleep(0.05)
+        except: continue
+    bot.send_message(message.chat.id, "✅ Done!")
 
 if __name__ == "__main__":
     bot.infinity_polling()
+        
