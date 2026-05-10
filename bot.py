@@ -23,12 +23,17 @@ bot = telebot.TeleBot(API_TOKEN, threaded=False)
 def load_data(file, default):
     if os.path.exists(file):
         try:
-            with open(file, 'r', encoding='utf-8') as f: return json.load(f)
+            with open(file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                return data if data is not None else default
         except: return default
     return default
 
 def save_data(file, data):
-    with open(file, 'w', encoding='utf-8') as f: json.dump(data, f, indent=4)
+    try:
+        with open(file, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=4)
+    except: pass
 
 DEFAULT_CHANNELS = [{"username": "@Earning_Tips055", "link": "https://t.me/Earning_Tips055"}]
 config = load_data(CONFIG_FILE, {"ref_bonus": 2.0, "min_withdraw": 500.0, "channels": DEFAULT_CHANNELS})
@@ -36,15 +41,14 @@ users = load_data(USER_FILE, {})
 
 def get_user(user_id, name="User"):
     uid = str(user_id)
-    is_new = False
     if uid not in users:
         users[uid] = {"balance": 0.0, "ref_count": 0, "name": name, "joined": True}
         save_data(USER_FILE, users)
-        is_new = True
-    return users[uid], is_new
+        return users[uid], True
+    return users[uid], False
 
 def is_user_joined_all(user_id):
-    if not config['channels']: return True
+    if not config.get('channels'): return True
     for ch in config['channels']:
         try:
             member = bot.get_chat_member(ch['username'], user_id)
@@ -77,7 +81,7 @@ def handle_start(message):
     name = message.from_user.first_name
     if not is_user_joined_all(message.from_user.id):
         markup = types.InlineKeyboardMarkup(row_width=1)
-        for i, ch in enumerate(config['channels'], 1):
+        for i, ch in enumerate(config.get('channels', []), 1):
             markup.add(types.InlineKeyboardButton(f"📢 Join Channel {i}", url=ch['link']))
         markup.add(types.InlineKeyboardButton("✅ Verify Join", callback_data="verify_join"))
         bot.send_message(message.chat.id, "✨ **সার্ভিসটি ব্যবহার করতে নিচের চ্যানেলে জয়েন করুন।**", reply_markup=markup)
@@ -100,8 +104,7 @@ def admin_settings(message):
         types.InlineKeyboardButton("📢 Broadcast Message", callback_data="conf_bc"),
         types.InlineKeyboardButton("⚙️ Manage Channels", callback_data="conf_chan")
     )
-    text = (f"🛠 **Admin Control Panel**\n\n💰 Refer Bonus: {config['ref_bonus']} BDT\n🏧 Min Withdraw: {config['min_withdraw']} BDT")
-    bot.send_message(message.chat.id, text, reply_markup=markup)
+    bot.send_message(message.chat.id, "🛠 **Admin Control Panel**", reply_markup=markup)
 
 @bot.message_handler(content_types=['text', 'document'])
 def handle_all(message):
@@ -141,76 +144,67 @@ def handle_all(message):
 @bot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
     uid = str(call.from_user.id)
+    chat_id = call.message.chat.id
+    message_id = call.message.message_id
     
     if call.data == "verify_join":
         if is_user_joined_all(call.from_user.id):
-            bot.delete_message(call.message.chat.id, call.message.message_id)
+            bot.delete_message(chat_id, message_id)
             handle_start(call.message)
         else:
             bot.answer_callback_query(call.id, "❌ জয়েন করেননি!", show_alert=True)
             
     elif call.data.startswith('sel_'):
         country = call.data.replace('sel_', '')
+        curr_db = load_data(DB_FILE, {})
         
-        try:
-            curr_db = load_data(DB_FILE, {})
+        if country in curr_db and curr_db[country]:
+            num = str(curr_db[country].pop(0))
+            save_data(DB_FILE, curr_db)
             
-            if country in curr_db and isinstance(curr_db[country], list) and len(curr_db[country]) > 0:
-                num = str(curr_db[country].pop(0))
-                save_data(DB_FILE, curr_db)
-                
-                # অর্ডার সেভ করা
-                try:
-                    p = phonenumbers.parse(num)
-                    m_key = f"{p.country_code}_{num[-3:]}"
-                    o_db = load_data(ORDERS_FILE, {})
-                    if m_key not in o_db: o_db[m_key] = []
-                    if uid not in o_db[m_key]:
-                        o_db[m_key].append(uid)
-                    save_data(ORDERS_FILE, o_db)
-                except: pass
+            # ওটিপি ট্র্যাকিং (নিরাপদ লজিক)
+            try:
+                p = phonenumbers.parse(num)
+                m_key = f"{p.country_code}_{num[-3:]}"
+                o_db = load_data(ORDERS_FILE, {})
+                if m_key not in o_db: o_db[m_key] = []
+                if uid not in o_db[m_key]: o_db[m_key].append(uid)
+                save_data(ORDERS_FILE, o_db)
+            except: pass
 
-                markup = types.InlineKeyboardMarkup(row_width=1)
-                try:
-                    markup.add(types.InlineKeyboardButton(text=f"📱 {num}", copy_text=num))
-                except:
-                    markup.add(types.InlineKeyboardButton(text=f"📱 {num}", callback_data="none"))
-                
-                markup.add(
-                    types.InlineKeyboardButton("🔄 CHANGE NUMBER", callback_data=f"sel_{country}"),
-                    types.InlineKeyboardButton("🌐 CHANGE COUNTRY", callback_data="back_c"),
-                    types.InlineKeyboardButton("🚀 GET OTP", url=OTP_GROUP_LINK)
-                )
-                
-                msg_text = f"🎁 Number for: {country}\n\nNumber: {num}\n\n💡 বাটনে ক্লিক করে কপি করুন।"
-                
-                # ফিক্সড এডিট লজিক
-                try:
-                    bot.edit_message_text(
-                        text=msg_text, 
-                        chat_id=call.message.chat.id, 
-                        message_id=call.message.message_id, 
-                        reply_markup=markup
-                    )
-                except:
-                    bot.send_message(call.message.chat.id, msg_text, reply_markup=markup)
-            else:
-                bot.answer_callback_query(call.id, f"❌ {country} স্টক শেষ!", show_alert=True)
-        except Exception as e:
-            bot.send_message(call.message.chat.id, f"⚠️ Error: {str(e)}")
+            markup = types.InlineKeyboardMarkup(row_width=1)
+            try:
+                markup.add(types.InlineKeyboardButton(text=f"📱 {num}", copy_text=num))
+            except:
+                markup.add(types.InlineKeyboardButton(text=f"📱 {num}", callback_data="none"))
+            
+            markup.add(
+                types.InlineKeyboardButton("🔄 CHANGE NUMBER", callback_data=f"sel_{country}"),
+                types.InlineKeyboardButton("🌐 CHANGE COUNTRY", callback_data="back_c"),
+                types.InlineKeyboardButton("🚀 GET OTP", url=OTP_GROUP_LINK)
+            )
+            
+            msg_text = f"🎁 Number for: {country}\n\nNumber: {num}\n\n💡 বাটনে ক্লিক করে কপি করুন।"
+            
+            try:
+                bot.edit_message_text(text=msg_text, chat_id=chat_id, message_id=message_id, reply_markup=markup)
+            except:
+                bot.send_message(chat_id, msg_text, reply_markup=markup)
+        else:
+            bot.answer_callback_query(call.id, "❌ স্টক শেষ!", show_alert=True)
 
     elif call.data == "back_c":
-        send_country_list(call.message.chat.id, call.message.message_id)
+        send_country_list(chat_id, message_id)
 
     elif call.data == "conf_chan":
         markup = types.InlineKeyboardMarkup(row_width=1)
         markup.add(types.InlineKeyboardButton("➕ Add Channel", callback_data="add_ch"))
-        for i, ch in enumerate(config['channels']):
+        for i, ch in enumerate(config.get('channels', [])):
             markup.add(types.InlineKeyboardButton(f"🗑️ Delete {ch['username']}", callback_data=f"delch_{i}"))
-        bot.edit_message_text(text="⚙️ Manage Channels:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
+        bot.edit_message_text(text="⚙️ Manage Channels:", chat_id=chat_id, message_id=message_id, reply_markup=markup)
     
     elif call.data == "add_ch":
-        msg = bot.send_message(call.message.chat.id, "Send Channel `@Username Link`:")
+        msg = bot.send_message(chat_id, "Send Channel `@Username Link`:")
         bot.register_next_step_handler(msg, process_add_ch)
         
     elif call.data.startswith("delch_"):
@@ -223,8 +217,8 @@ def handle_query(call):
         curr_db = load_data(DB_FILE, {})
         markup = types.InlineKeyboardMarkup()
         for k, v in curr_db.items():
-            if v and len(v) > 0: markup.add(types.InlineKeyboardButton(f"🗑️ {k}", callback_data=f"rmv_{k}"))
-        bot.edit_message_text(text="Clear Stock:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
+            if v: markup.add(types.InlineKeyboardButton(f"🗑️ {k} ({len(v)})", callback_data=f"rmv_{k}"))
+        bot.edit_message_text(text="Clear Stock:", chat_id=chat_id, message_id=message_id, reply_markup=markup)
         
     elif call.data.startswith('rmv_'):
         c = call.data.replace('rmv_', '')
@@ -234,15 +228,15 @@ def handle_query(call):
         admin_settings(call.message)
         
     elif call.data == "conf_bc":
-        msg = bot.send_message(call.message.chat.id, "📢 Send Broadcast Message:")
+        msg = bot.send_message(chat_id, "📢 Send Broadcast Message:")
         bot.register_next_step_handler(msg, do_broadcast)
         
     elif call.data == "conf_ref":
-        msg = bot.send_message(call.message.chat.id, "Enter Refer Bonus Amount:")
+        msg = bot.send_message(chat_id, "Enter Refer Bonus Amount:")
         bot.register_next_step_handler(msg, lambda m: update_conf(m, 'ref_bonus'))
         
     elif call.data == "conf_with":
-        msg = bot.send_message(call.message.chat.id, "Enter Min Withdraw Amount:")
+        msg = bot.send_message(chat_id, "Enter Min Withdraw Amount:")
         bot.register_next_step_handler(msg, lambda m: update_conf(m, 'min_withdraw'))
 
 def process_add_ch(message):
@@ -285,4 +279,4 @@ def send_country_list(chat_id, message_id=None):
 
 if __name__ == "__main__":
     bot.infinity_polling()
-                
+    
