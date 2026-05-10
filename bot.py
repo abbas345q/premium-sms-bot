@@ -134,53 +134,35 @@ def handle_all(message):
 @bot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
     uid = str(call.from_user.id)
-    
-    # জয়েনিং ভেরিফিকেশন
     if call.data == "verify_join":
         if is_user_joined_all(call.from_user.id):
             bot.delete_message(call.message.chat.id, call.message.message_id)
             handle_start(call.message)
         else:
-            bot.answer_callback_query(call.id, "❌ জয়েন করেননি!", show_alert=True)
+            bot.answer_callback_query(call.id, "❌ জয়েন করেননি!", show_alert=True)
             
-    # নাম্বার সিলেকশন (এটি আলাদা কন্ডিশনে থাকতে হবে)
     elif call.data.startswith('sel_'):
         country = call.data.replace('sel_', '')
         curr_db = load_data(DB_FILE, {})
-        if country in curr_db and isinstance(curr_db[country], list) and len(curr_db[country]) > 0:
-            try:
-                num = str(curr_db[country].pop(0))
-                save_data(DB_FILE, curr_db)
-            except:
-                bot.answer_callback_query(call.id, "❌ Error loading number!", show_alert=True)
-                return
-
-            try:
-                p = phonenumbers.parse(num)
-                m_key = f"{p.country_code}_{num[-3:]}"
-                o_db = load_data(ORDERS_FILE, {})
-                if m_key not in o_db: o_db[m_key] = []
-                o_db[m_key].append(uid)
-                save_data(ORDERS_FILE, o_db)
-            except: pass
-
-            markup = types.InlineKeyboardMarkup(row_width=1)
-            try:
-                markup.add(types.InlineKeyboardButton(text=f"📱 {num}", copy_text=num))
-            except:
-                markup.add(types.InlineKeyboardButton(text=f"📱 {num} (Tap to Copy)", callback_data="none"))
+        if country in curr_db and len(curr_db[country]) > 0:
+            num = str(curr_db[country].pop(0))
+            save_data(DB_FILE, curr_db)
             
+            # গত রাতের সফল সিস্টেম (নাম্বারটি সরাসরি টেক্সটে থাকবে)
+            markup = types.InlineKeyboardMarkup(row_width=1)
             markup.add(
                 types.InlineKeyboardButton("🔄 CHANGE NUMBER", callback_data=f"sel_{country}"),
                 types.InlineKeyboardButton("🌐 CHANGE COUNTRY", callback_data="back_c"),
                 types.InlineKeyboardButton("🚀 GET OTP", url=OTP_GROUP_LINK)
             )
             
-            msg_text = f"🎁 Number for: {country}\n\nNumber: {num}\n\n💡 বাটনে ক্লিক করে নাম্বারটি কপি করুন।"
+            # নাম্বারটি ব্যাকটিকস (`) এর ভেতরে দেওয়া হয়েছে যাতে এক ক্লিকেই কপি হয়
+            msg_text = f"🎁 **Number for {country}**\n\n📱 Number: `{num}`\n\n💡 উপরে নাম্বারের ওপর ক্লিক করলেই সেটি কপি হয়ে যাবে।"
+            
             try:
-                bot.edit_message_text(text=msg_text, chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
+                bot.edit_message_text(msg_text, call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
             except:
-                bot.send_message(call.message.chat.id, msg_text, reply_markup=markup)
+                bot.send_message(call.message.chat.id, msg_text, reply_markup=markup, parse_mode="Markdown")
         else:
             bot.answer_callback_query(call.id, "❌ স্টক শেষ!", show_alert=True)
 
@@ -244,4 +226,4 @@ def send_country_list(chat_id, message_id=None):
 
 if __name__ == "__main__":
     bot.infinity_polling()
-    
+            
