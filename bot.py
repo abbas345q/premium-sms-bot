@@ -61,7 +61,7 @@ def send_country_list(chat_id, message_id=None):
     curr_db = load_data(DB_FILE, {})
     active = {k: v for k, v in curr_db.items() if isinstance(v, list) and len(v) > 0}
     if not active:
-        bot.send_message(chat_id, "❌ **No stock available.**", parse_mode="Markdown")
+        bot.send_message(chat_id, "❌ **No stock available.**")
         return
     markup = types.InlineKeyboardMarkup(row_width=1)
     for c in sorted(active.keys()):
@@ -107,33 +107,33 @@ def admin_settings(message):
     if int(message.from_user.id) != ADMIN_ID: return
     markup = types.InlineKeyboardMarkup(row_width=1)
     markup.add(
+        types.InlineKeyboardButton("💵 Set Refer Bonus", callback_data="conf_ref"),
+        types.InlineKeyboardButton("🏧 Set Min Withdraw", callback_data="conf_with"),
         types.InlineKeyboardButton("🗑️ Clear Stock", callback_data="conf_clear"),
         types.InlineKeyboardButton("📢 Broadcast Message", callback_data="conf_bc")
     )
-    bot.send_message(message.chat.id, "🛠 **Admin Control Panel**", reply_markup=markup)
+    text = (f"🛠 **Admin Control Panel**\n\n💰 Refer Bonus: {config['ref_bonus']} BDT\n🏧 Min Withdraw: {config['min_withdraw']} BDT")
+    bot.send_message(message.chat.id, text, reply_markup=markup)
 
 @bot.message_handler(content_types=['text', 'document'])
 def handle_all(message):
-    if not is_user_joined_all(message.from_user.id): return
     uid = str(message.from_user.id)
     u_data = load_data(USER_FILE, {}).get(uid, {"balance": 0.0})
 
-    # User Buttons
     if message.text == "📞 Get Number":
         send_country_list(message.chat.id)
     elif message.text == "💰 Balance":
-        bot.send_message(message.chat.id, f"💳 **Current Balance:** {u_data['balance']} BDT", parse_mode="Markdown")
+        bot.send_message(message.chat.id, f"💳 **Current Balance:** {u_data['balance']} BDT")
     elif message.text == "🎁 Refer & Earn":
         bot_user = (bot.get_me()).username
-        bot.send_message(message.chat.id, f"🎁 **Refer Link:**\nhttps://t.me/{bot_user}?start={uid}")
+        bot.send_message(message.chat.id, f"🎁 **Refer Link:** https://t.me/{bot_user}?start={uid}")
     elif message.text == "💸 Withdraw":
-        bot.send_message(message.chat.id, f"❌ **Min Withdraw:** {config['min_withdraw']} BDT", parse_mode="Markdown")
+        bot.send_message(message.chat.id, f"❌ **Min Withdraw:** {config['min_withdraw']} BDT")
     elif message.text == "🌍 Available Countries":
         current_db = load_data(DB_FILE, {})
         active = [f"✅ {k} ({len(v)})" for k, v in current_db.items() if v and len(v) > 0]
-        bot.send_message(message.chat.id, "🌍 **Stock List:**\n\n" + "\n".join(active) if active else "❌ Empty", parse_mode="Markdown")
+        bot.send_message(message.chat.id, "🌍 Stock List:\n\n" + "\n".join(active) if active else "❌ Empty")
     
-    # Admin Number Adding (Fix)
     elif int(message.from_user.id) == ADMIN_ID:
         txt = message.text if message.text else ""
         if message.content_type == 'document':
@@ -146,66 +146,75 @@ def handle_all(message):
             added = 0
             for r in found:
                 flag = detect_country_flag(r)
-                try:
-                    name = geocoder.description_for_number(phonenumbers.parse(f"+{r.lstrip('+')}"), "en")
+                try: name = geocoder.description_for_number(phonenumbers.parse(f"+{r.lstrip('+')}"), "en")
                 except: name = "Unknown"
                 c_name = f"{flag} {name}" if name != "Unknown" else f"📍 Zone +{r[:3]}"
-                
                 if c_name not in curr_db: curr_db[c_name] = []
                 num = f"+{r.lstrip('+')}"
                 if num not in curr_db[c_name]:
                     curr_db[c_name].append(num)
                     added += 1
             save_data(DB_FILE, curr_db)
-            bot.reply_to(message, f"✅ **Added {added} numbers to stock.**", parse_mode="Markdown")
+            bot.reply_to(message, f"✅ **Added {added} numbers to stock.**")
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
-    uid = str(call.from_user.id)
     chat_id = call.message.chat.id
     message_id = call.message.message_id
 
     if call.data == "verify_join":
         if is_user_joined_all(call.from_user.id):
-            bot.answer_callback_query(call.id, "✅ Verified!")
             bot.delete_message(chat_id, message_id)
             handle_start(call.message)
         else:
-            bot.answer_callback_query(call.id, "❌ জয়েন করেননি!", show_alert=True)
+            bot.answer_callback_query(call.id, "❌ জয়েন করেননি!", show_alert=True)
 
     elif call.data.startswith('sel_'):
         country = call.data.replace('sel_', '')
         curr_db = load_data(DB_FILE, {})
-        
         if country in curr_db and curr_db[country]:
             num = str(curr_db[country].pop(0))
             save_data(DB_FILE, curr_db)
-            
             markup = types.InlineKeyboardMarkup(row_width=1)
             markup.add(
                 types.InlineKeyboardButton("🔄 CHANGE NUMBER", callback_data=f"sel_{country}"),
                 types.InlineKeyboardButton("🌐 CHANGE COUNTRY", callback_data="back_c"),
                 types.InlineKeyboardButton("🚀 GET OTP", url=OTP_GROUP_LINK)
             )
-            
-            # আপনার প্রিমিয়াম ডিজাইন
-            msg_text = (
-                f"🌍 **Country:** {country}\n"
-                f"━━━━━━━━━━━━━━\n"
-                f"`{num}`\n"
-                f"━━━━━━━━━━━━━━\n"
-                f"💡 **Tap to copy!**"
-            )
-            try:
-                bot.edit_message_text(msg_text, chat_id, message_id, reply_markup=markup, parse_mode="Markdown")
-            except:
-                bot.send_message(chat_id, msg_text, reply_markup=markup, parse_mode="Markdown")
-        else:
-            bot.answer_callback_query(call.id, "❌ স্টক শেষ!", show_alert=True)
+            msg_text = f"🌍 **Country:** {country}\n━━━━━━━━━━━━━━\n`{num}`\n━━━━━━━━━━━━━━\n💡 **Tap to copy!**"
+            try: bot.edit_message_text(msg_text, chat_id, message_id, reply_markup=markup, parse_mode="Markdown")
+            except: bot.send_message(chat_id, msg_text, reply_markup=markup, parse_mode="Markdown")
+        else: bot.answer_callback_query(call.id, "❌ স্টক শেষ!", show_alert=True)
 
     elif call.data == "back_c":
         send_country_list(chat_id, message_id)
+        
+    elif call.data == "conf_ref":
+        msg = bot.send_message(chat_id, "Enter Refer Bonus Amount:")
+        bot.register_next_step_handler(msg, lambda m: update_config(m, 'ref_bonus'))
+    elif call.data == "conf_with":
+        msg = bot.send_message(chat_id, "Enter Min Withdraw Amount:")
+        bot.register_next_step_handler(msg, lambda m: update_config(m, 'min_withdraw'))
+    elif call.data == "conf_bc":
+        msg = bot.send_message(chat_id, "Send Broadcast Message:")
+        bot.register_next_step_handler(msg, do_broadcast)
+    elif call.data == "conf_clear":
+        save_data(DB_FILE, {})
+        bot.answer_callback_query(call.id, "✅ Stock Cleared!")
+
+def update_config(message, key):
+    try:
+        config[key] = float(message.text)
+        save_data(CONFIG_FILE, config)
+        bot.send_message(message.chat.id, "✅ Updated!")
+    except: bot.send_message(message.chat.id, "❌ Invalid input.")
+
+def do_broadcast(message):
+    for uid in load_data(USER_FILE, {}).keys():
+        try: bot.send_message(uid, message.text)
+        except: pass
+    bot.send_message(message.chat.id, "✅ Broadcast Done!")
 
 if __name__ == "__main__":
     bot.infinity_polling()
-    
+        
