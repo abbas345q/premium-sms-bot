@@ -122,7 +122,6 @@ def handle_all(message):
     uid = str(message.from_user.id)
     if not is_user_joined_all(message.from_user.id): return
     
-    # User Buttons
     if message.text == "📞 Get Number":
         send_country_list(message.chat.id)
     elif message.text == "💰 Balance":
@@ -138,7 +137,6 @@ def handle_all(message):
         active = [f"✅ {k} ({len(v)})" for k, v in current_db.items() if v and len(v) > 0]
         bot.send_message(message.chat.id, "🌍 Stock List:\n\n" + "\n".join(active) if active else "❌ Empty")
     
-    # Admin Add Number
     elif int(message.from_user.id) == ADMIN_ID:
         txt = message.text if message.text else ""
         if message.content_type == 'document':
@@ -193,7 +191,35 @@ def handle_query(call):
     elif call.data == "back_c":
         send_country_list(chat_id, message_id)
 
-    # --- ADMIN CALLBACKS (FIXED) ---
+    # --- ADMIN CALLBACKS (UPDATED) ---
+    elif call.data == "conf_clear":
+        curr_db = load_data(DB_FILE, {})
+        active_countries = {k: v for k, v in curr_db.items() if v and len(v) > 0}
+        
+        if not active_countries:
+            bot.answer_callback_query(call.id, "❌ No stock to clear!", show_alert=True)
+            return
+
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        for country in sorted(active_countries.keys()):
+            markup.add(types.InlineKeyboardButton(f"🗑️ Clear {country}", callback_data=f"rmv_{country}"))
+        
+        markup.add(types.InlineKeyboardButton("⬅️ Back", callback_data="back_settings"))
+        bot.edit_message_text("🗑️ **Select country to clear stock:**", chat_id, message_id, reply_markup=markup)
+
+    elif call.data.startswith('rmv_'):
+        country_to_rm = call.data.replace('rmv_', '')
+        curr_db = load_data(DB_FILE, {})
+        if country_to_rm in curr_db:
+            curr_db[country_to_rm] = []
+            save_data(DB_FILE, curr_db)
+            bot.answer_callback_query(call.id, f"✅ {country_to_rm} stock cleared!")
+            admin_settings(call.message)
+
+    elif call.data == "back_settings":
+        bot.delete_message(chat_id, message_id)
+        admin_settings(call.message)
+
     elif call.data == "conf_chan":
         markup = types.InlineKeyboardMarkup(row_width=1)
         markup.add(types.InlineKeyboardButton("➕ Add Channel", callback_data="add_ch"))
@@ -220,9 +246,6 @@ def handle_query(call):
     elif call.data == "conf_bc":
         msg = bot.send_message(chat_id, "Enter Broadcast Message:")
         bot.register_next_step_handler(msg, do_broadcast)
-    elif call.data == "conf_clear":
-        save_data(DB_FILE, {})
-        bot.answer_callback_query(call.id, "✅ Stock Cleared!")
 
 def process_add_ch(message):
     try:
@@ -247,4 +270,4 @@ def do_broadcast(message):
 
 if __name__ == "__main__":
     bot.infinity_polling()
-                                                                                            
+    
