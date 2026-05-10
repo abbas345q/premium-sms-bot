@@ -23,12 +23,12 @@ bot = telebot.TeleBot(API_TOKEN, threaded=False)
 def load_data(file, default):
     if os.path.exists(file):
         try:
-            with open(file, 'r') as f: return json.load(f)
+            with open(file, 'r', encoding='utf-8') as f: return json.load(f)
         except: return default
     return default
 
 def save_data(file, data):
-    with open(file, 'w') as f: json.dump(data, f, indent=4)
+    with open(file, 'w', encoding='utf-8') as f: json.dump(data, f, indent=4)
 
 DEFAULT_CHANNELS = [{"username": "@Earning_Tips055", "link": "https://t.me/Earning_Tips055"}]
 config = load_data(CONFIG_FILE, {"ref_bonus": 2.0, "min_withdraw": 500.0, "channels": DEFAULT_CHANNELS})
@@ -76,7 +76,6 @@ def handle_start(message):
     uid = str(message.from_user.id)
     name = message.from_user.first_name
     
-    # জয়েনিং ভেরিফিকেশন
     if not is_user_joined_all(message.from_user.id):
         markup = types.InlineKeyboardMarkup(row_width=1)
         for i, ch in enumerate(config['channels'], 1):
@@ -85,10 +84,8 @@ def handle_start(message):
         bot.send_message(message.chat.id, "✨ **সার্ভিসটি ব্যবহার করতে নিচের চ্যানেলে জয়েন করুন।**", reply_markup=markup, parse_mode="Markdown")
         return
 
-    # ইউজার ডাটা চেক (নতুন না পুরাতন)
     u_data, is_new = get_user(message.from_user.id, name)
 
-    # রেফারাল চেক (শুধুমাত্র নতুন ইউজারদের জন্য)
     args = message.text.split()
     if len(args) > 1 and is_new:
         ref_id = args[1]
@@ -96,10 +93,10 @@ def handle_start(message):
             users[ref_id]['balance'] += config['ref_bonus']
             users[ref_id]['ref_count'] += 1
             save_data(USER_FILE, users)
-            bot.send_message(ref_id, f"🎊 Referral Bonus Earned! {config['ref_bonus']} BDT")
+            try: bot.send_message(ref_id, f"🎊 Referral Bonus Earned! {config['ref_bonus']} BDT")
+            except: pass
 
     if is_new:
-        # প্রথমবার ওয়েলকাম মেসেজ
         welcome_text = (
             f"👑 **Welcome , {name}!**\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -112,7 +109,6 @@ def handle_start(message):
         )
         bot.send_message(message.chat.id, welcome_text, reply_markup=main_keyboard(), parse_mode="Markdown")
     else:
-        # দ্বিতীয়বার থেকে সরাসরি কান্ট্রি লিস্ট
         send_country_list(message.chat.id)
 
 @bot.message_handler(commands=['settings'])
@@ -146,10 +142,10 @@ def handle_all(message):
         bot.send_message(message.chat.id, f"❌ **Min Withdraw:** {config['min_withdraw']} BDT", parse_mode="Markdown")
     elif message.text == "🌍 Available Countries":
         current_db = load_data(DB_FILE, {})
-        active = [f"✅ {k} ({len(v)})" for k, v in current_db.items() if v]
+        active = [f"✅ {k} ({len(v)})" for k, v in current_db.items() if v and len(v) > 0]
         bot.send_message(message.chat.id, "🌍 **Stock List:**\n\n" + "\n".join(active) if active else "❌ Empty", parse_mode="Markdown")
     
-    elif message.from_user.id == ADMIN_ID:
+    elif int(message.from_user.id) == ADMIN_ID:
         txt = message.text if message.text else ""
         if message.content_type == 'document':
             f_info = bot.get_file(message.document.file_id)
@@ -167,13 +163,15 @@ def handle_all(message):
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
-    bot.answer_callback_query(call.id)
     uid = str(call.from_user.id)
 
     if call.data == "verify_join":
         if is_user_joined_all(call.from_user.id):
+            bot.answer_callback_query(call.id, "✅ Verified!")
             bot.delete_message(call.message.chat.id, call.message.message_id)
             handle_start(call.message)
+        else:
+            bot.answer_callback_query(call.id, "❌ জয়েন করেননি!", show_alert=True)
 
     elif call.data.startswith('sel_'):
         country = call.data.replace('sel_', '')
@@ -196,21 +194,21 @@ def handle_query(call):
                 types.InlineKeyboardButton("🌐 CHANGE COUNTRY", callback_data="back_c"),
                 types.InlineKeyboardButton("🚀 GET OTP", url=OTP_GROUP_LINK)
             )
-            msg_text = f"🎁 Number for: {country}\n\nNumber: {num}\n\n💡 বাটনে ক্লিক করে নাম্বারটি কপি করুন।"
-            try: bot.edit_message_text(msg_text, call.message.chat.id, call.message.message_id, reply_markup=markup)
-            except: bot.send_message(call.message.chat.id, msg_text, reply_markup=markup)
+            msg_text = f"🎁 Number for: {country}\n\nNumber: `{num}`\n\n💡 বাটনে ক্লিক করে নাম্বারটি কপি করুন।"
+            try: bot.edit_message_text(msg_text, call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+            except: bot.send_message(call.message.chat.id, msg_text, reply_markup=markup, parse_mode="Markdown")
         else:
-            bot.answer_callback_query(call.id, "❌ Stock Empty!", show_alert=True)
+            bot.answer_callback_query(call.id, "❌ স্টক শেষ!", show_alert=True)
 
     elif call.data == "back_c":
+        bot.answer_callback_query(call.id)
         send_country_list(call.message.chat.id, call.message.message_id)
 
-    # অ্যাডমিন প্যানেল লজিক
     elif call.data == "conf_ref":
-        msg = bot.send_message(call.message.chat.id, "Enter Refer Bonus:")
+        msg = bot.send_message(call.message.chat.id, "Enter Refer Bonus Amount:")
         bot.register_next_step_handler(msg, lambda m: update_conf(m, 'ref_bonus'))
     elif call.data == "conf_with":
-        msg = bot.send_message(call.message.chat.id, "Enter Min Withdraw:")
+        msg = bot.send_message(call.message.chat.id, "Enter Min Withdraw Amount:")
         bot.register_next_step_handler(msg, lambda m: update_conf(m, 'min_withdraw'))
     elif call.data == "conf_bc":
         msg = bot.send_message(call.message.chat.id, "📢 Send Broadcast Message:")
@@ -221,19 +219,50 @@ def handle_query(call):
         for i, ch in enumerate(config['channels']):
             markup.add(types.InlineKeyboardButton(f"🗑️ Delete {ch['username']}", callback_data=f"delch_{i}"))
         bot.edit_message_text("⚙️ Manage Channels:", call.message.chat.id, call.message.message_id, reply_markup=markup)
+    elif call.data == "conf_clear":
+        curr_db = load_data(DB_FILE, {})
+        markup = types.InlineKeyboardMarkup()
+        for k, v in curr_db.items():
+            if v: markup.add(types.InlineKeyboardButton(f"🗑️ {k} ({len(v)})", callback_data=f"rmv_{k}"))
+        bot.edit_message_text("🗑️ Select country to clear stock:", call.message.chat.id, call.message.message_id, reply_markup=markup)
+    elif call.data.startswith('rmv_'):
+        c = call.data.replace('rmv_', '')
+        curr_db = load_data(DB_FILE, {})
+        curr_db[c] = []
+        save_data(DB_FILE, curr_db)
+        bot.answer_callback_query(call.id, f"✅ {c} Cleared!")
+        admin_settings(call.message)
+    elif call.data == "add_ch":
+        msg = bot.send_message(call.message.chat.id, "Send Channel `@Username Link`:")
+        bot.register_next_step_handler(msg, process_add_ch)
+    elif call.data.startswith("delch_"):
+        idx = int(call.data.split("_")[1])
+        config['channels'].pop(idx)
+        save_data(CONFIG_FILE, config)
+        bot.answer_callback_query(call.id, "✅ Deleted!")
+        admin_settings(call.message)
+
+def process_add_ch(message):
+    try:
+        parts = message.text.split()
+        config['channels'].append({"username": parts[0], "link": parts[1]})
+        save_data(CONFIG_FILE, config)
+        bot.send_message(message.chat.id, "✅ Channel Added!")
+    except: bot.send_message(message.chat.id, "❌ Error. Use: `@User https://link`")
 
 def update_conf(message, key):
     try:
         config[key] = float(message.text); save_data(CONFIG_FILE, config)
-        bot.send_message(message.chat.id, "✅ Updated!")
-    except: bot.send_message(message.chat.id, "❌ Invalid.")
+        bot.send_message(message.chat.id, "✅ Updated Successfully!")
+    except: bot.send_message(message.chat.id, "❌ Invalid Input.")
 
 def do_broadcast(message):
     u_list = load_data(USER_FILE, {})
+    success = 0
     for uid in u_list.keys():
-        try: bot.send_message(uid, message.text); time.sleep(0.05)
+        try: bot.send_message(uid, message.text); time.sleep(0.05); success += 1
         except: continue
-    bot.send_message(message.chat.id, "✅ Done.")
+    bot.send_message(message.chat.id, f"✅ Done! Sent to {success} users.")
 
 def send_country_list(chat_id, message_id=None):
     curr_db = load_data(DB_FILE, {})
@@ -253,4 +282,4 @@ def send_country_list(chat_id, message_id=None):
 
 if __name__ == "__main__":
     bot.infinity_polling()
-    
+            
