@@ -134,25 +134,27 @@ def handle_all(message):
 @bot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
     uid = str(call.from_user.id)
+    
+    # জয়েনিং ভেরিফিকেশন
     if call.data == "verify_join":
         if is_user_joined_all(call.from_user.id):
             bot.delete_message(call.message.chat.id, call.message.message_id)
             handle_start(call.message)
-        elif call.data.startswith('sel_'):
+        else:
+            bot.answer_callback_query(call.id, "❌ জয়েন করেননি!", show_alert=True)
+            
+    # নাম্বার সিলেকশন (এটি আলাদা কন্ডিশনে থাকতে হবে)
+    elif call.data.startswith('sel_'):
         country = call.data.replace('sel_', '')
         curr_db = load_data(DB_FILE, {})
-        
-        # ডাটাবেজে ওই দেশের লিস্ট আছে কি না এবং তাতে নম্বর আছে কি না চেক
         if country in curr_db and isinstance(curr_db[country], list) and len(curr_db[country]) > 0:
-            # একদম নিশ্চিতভাবে নম্বরটি স্ট্রিং হিসেবে বের করা
             try:
                 num = str(curr_db[country].pop(0))
                 save_data(DB_FILE, curr_db)
-            except Exception as e:
+            except:
                 bot.answer_callback_query(call.id, "❌ Error loading number!", show_alert=True)
                 return
 
-            # ওটিপি ট্র্যাকিং (গতরাতের লজিক অনুযায়ী)
             try:
                 p = phonenumbers.parse(num)
                 m_key = f"{p.country_code}_{num[-3:]}"
@@ -162,10 +164,7 @@ def handle_query(call):
                 save_data(ORDERS_FILE, o_db)
             except: pass
 
-            # কিবোর্ড তৈরি
             markup = types.InlineKeyboardMarkup(row_width=1)
-            
-            # আপনার সেই কাঙ্ক্ষিত অটো-কপি বাটন
             try:
                 markup.add(types.InlineKeyboardButton(text=f"📱 {num}", copy_text=num))
             except:
@@ -177,20 +176,17 @@ def handle_query(call):
                 types.InlineKeyboardButton("🚀 GET OTP", url=OTP_GROUP_LINK)
             )
             
-            # মেসেজ টেক্সট (কোনো ফরম্যাটিং ছাড়াই একদম ক্লিন টেক্সট)
             msg_text = f"🎁 Number for: {country}\n\nNumber: {num}\n\n💡 বাটনে ক্লিক করে নাম্বারটি কপি করুন।"
-            
             try:
-                # কোনো parse_mode ব্যবহার করবেন না, তাহলে এরর হওয়ার চান্স ০%
                 bot.edit_message_text(text=msg_text, chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
             except:
-                # যদি এডিট ফেল করে, তবে নতুন মেসেজ পাঠিয়ে দিবে
                 bot.send_message(call.message.chat.id, msg_text, reply_markup=markup)
         else:
             bot.answer_callback_query(call.id, "❌ স্টক শেষ!", show_alert=True)
 
     elif call.data == "back_c":
         send_country_list(call.message.chat.id, call.message.message_id)
+
     # --- Admin Logic ---
     elif call.data == "conf_chan":
         markup = types.InlineKeyboardMarkup(row_width=1)
@@ -248,4 +244,4 @@ def send_country_list(chat_id, message_id=None):
 
 if __name__ == "__main__":
     bot.infinity_polling()
-            
+    
