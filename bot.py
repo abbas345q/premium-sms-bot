@@ -23,8 +23,7 @@ def load_data(file, default):
     if os.path.exists(file):
         try:
             with open(file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                return data if data is not None else default
+                return json.load(f)
         except: return default
     return default
 
@@ -34,8 +33,7 @@ def save_data(file, data):
             json.dump(data, f, indent=4)
     except: pass
 
-DEFAULT_CHANNELS = [{"username": "@Earning_Tips055", "link": "https://t.me/Earning_Tips055"}]
-config = load_data(CONFIG_FILE, {"ref_bonus": 2.0, "min_withdraw": 500.0, "channels": DEFAULT_CHANNELS})
+config = load_data(CONFIG_FILE, {"ref_bonus": 2.0, "min_withdraw": 500.0, "channels": []})
 users = load_data(USER_FILE, {})
 
 def get_user(user_id, name="User"):
@@ -63,17 +61,16 @@ def main_keyboard():
     markup.row(types.KeyboardButton("🌍 Available Countries"))
     return markup
 
-def detect_country_flag(num_str):
+def detect_country_info(num_str):
     try:
         full_num = f"+{num_str.lstrip('+')}"
         parsed = phonenumbers.parse(full_num)
+        name = geocoder.description_for_number(parsed, "en")
         region = phonenumbers.region_code_for_number(parsed)
-        if region:
-            return "".join(chr(ord(c) + 127397) for c in region.upper())
-        return "📍"
-    except: return "📍"
+        flag = "".join(chr(ord(c) + 127397) for c in region.upper()) if region else "📍"
+        return flag, name if name else f"Zone +{parsed.country_code}"
+    except: return "📍", f"Zone +{num_str[:3]}"
 
-# --- UTILS ---
 def send_country_list(chat_id, message_id=None):
     curr_db = load_data(DB_FILE, {})
     active = {k: v for k, v in curr_db.items() if isinstance(v, list) and len(v) > 0}
@@ -87,7 +84,7 @@ def send_country_list(chat_id, message_id=None):
     txt = "📍 **Select Country:**"
     if message_id:
         try: bot.edit_message_text(txt, chat_id, message_id, reply_markup=markup, parse_mode="Markdown")
-        except: bot.send_message(chat_id, txt, reply_markup=markup)
+        except: bot.send_message(chat_id, txt, reply_markup=markup, parse_mode="Markdown")
     else:
         bot.send_message(chat_id, txt, reply_markup=markup, parse_mode="Markdown")
 
@@ -95,17 +92,16 @@ def send_country_list(chat_id, message_id=None):
 @bot.message_handler(commands=['start'])
 def handle_start(message):
     uid = str(message.from_user.id)
-    name = message.from_user.first_name
     if not is_user_joined_all(message.from_user.id):
         markup = types.InlineKeyboardMarkup(row_width=1)
         for i, ch in enumerate(config.get('channels', []), 1):
             markup.add(types.InlineKeyboardButton(f"📢 Join Channel {i}", url=ch['link']))
         markup.add(types.InlineKeyboardButton("✅ Verify Join", callback_data="verify_join"))
-        bot.send_message(message.chat.id, "✨ **সার্ভিসটি ব্যবহার করতে নিচের চ্যানেলে জয়েন করুন।**", reply_markup=markup)
+        bot.send_message(message.chat.id, "✨ **সার্ভিসটি ব্যবহার করতে জয়েন করুন।**", reply_markup=markup)
         return
-    u_data, is_new = get_user(message.from_user.id, name)
+    u_data, is_new = get_user(message.from_user.id, message.from_user.first_name)
     if is_new:
-        bot.send_message(message.chat.id, f"👑 **Welcome {name}!**\nPremium OTP প্যানেলে আপনাকে স্বাগতম।", reply_markup=main_keyboard())
+        bot.send_message(message.chat.id, f"👑 **Welcome!**\nPremium OTP প্যানেলে স্বাগতম।", reply_markup=main_keyboard())
     else:
         send_country_list(message.chat.id)
 
@@ -120,7 +116,7 @@ def admin_settings(message):
         types.InlineKeyboardButton("📢 Broadcast Message", callback_data="conf_bc"),
         types.InlineKeyboardButton("⚙️ Manage Channels", callback_data="conf_chan")
     )
-    bot.send_message(message.chat.id, "🛠 **Admin Panel**", reply_markup=markup)
+    bot.send_message(message.chat.id, "🛠 **Admin Control Panel**", reply_markup=markup)
 
 @bot.message_handler(content_types=['text', 'document'])
 def handle_all(message):
@@ -152,9 +148,8 @@ def handle_all(message):
             curr_db = load_data(DB_FILE, {})
             added = 0
             for r in found:
-                flag = detect_country_flag(r)
-                name = geocoder.description_for_number(phonenumbers.parse(f"+{r.lstrip('+')}"), "en")
-                c_name = f"{flag} {name}" if name else f"📍 Zone +{r[:3]}"
+                flag, name = detect_country_info(r)
+                c_name = f"{flag} {name}"
                 if c_name not in curr_db: curr_db[c_name] = []
                 num = f"+{r.lstrip('+')}"
                 if num not in curr_db[c_name]: curr_db[c_name].append(num); added += 1
@@ -182,23 +177,20 @@ def handle_query(call):
             num = str(curr_db[country].pop(0))
             save_data(DB_FILE, curr_db)
             
+            # কিবোর্ড (নম্বর বাটন ছাড়া)
             markup = types.InlineKeyboardMarkup(row_width=1)
-            try:
-                markup.add(types.InlineKeyboardButton(text=f"📱 {num}", copy_text=num))
-            except:
-                markup.add(types.InlineKeyboardButton(text=f"📱 {num}", callback_data="none"))
-            
             markup.add(
                 types.InlineKeyboardButton("🔄 CHANGE NUMBER", callback_data=f"sel_{country}"),
                 types.InlineKeyboardButton("🌐 CHANGE COUNTRY", callback_data="back_c"),
                 types.InlineKeyboardButton("🚀 GET OTP", url=OTP_GROUP_LINK)
             )
             
-            msg_text = f"🎁 Number for: {country}\n\nNumber: `{num}`\n\n💡 বাটনে ক্লিক করে কপি করুন।"
+            # নম্বরটি সরাসরি টেক্সটে Mono আকারে দেওয়া হলো
+            msg_text = f"🎁 **Number for: {country}**\n\n📱 Number: `{num}`\n\n💡 উপরের নাম্বারের ওপর ক্লিক করলেই কপি হয়ে যাবে।"
             try:
                 bot.edit_message_text(text=msg_text, chat_id=chat_id, message_id=message_id, reply_markup=markup, parse_mode="Markdown")
             except:
-                bot.send_message(chat_id, msg_text, reply_markup=markup)
+                bot.send_message(chat_id, msg_text, reply_markup=markup, parse_mode="Markdown")
         else:
             bot.answer_callback_query(call.id, "❌ স্টক শেষ!", show_alert=True)
 
@@ -212,45 +204,10 @@ def handle_query(call):
             markup.add(types.InlineKeyboardButton(f"🗑️ Delete {ch['username']}", callback_data=f"delch_{i}"))
         bot.edit_message_text("⚙️ Manage Channels:", chat_id, message_id, reply_markup=markup)
 
-    elif call.data == "add_ch":
-        msg = bot.send_message(chat_id, "Send Channel `@Username Link`:")
-        bot.register_next_step_handler(msg, process_add_ch)
-
-    elif call.data.startswith("delch_"):
-        idx = int(call.data.split("_")[1])
-        config['channels'].pop(idx)
-        save_data(CONFIG_FILE, config)
-        admin_settings(call.message)
-
-    elif call.data == "conf_clear":
-        curr_db = load_data(DB_FILE, {})
-        markup = types.InlineKeyboardMarkup()
-        for k in curr_db.keys():
-            if curr_db[k]: markup.add(types.InlineKeyboardButton(f"🗑️ {k}", callback_data=f"rmv_{k}"))
-        bot.edit_message_text("Clear Stock:", chat_id, message_id, reply_markup=markup)
-
-    elif call.data.startswith('rmv_'):
-        c = call.data.replace('rmv_', ''); curr_db = load_data(DB_FILE, {}); curr_db[c] = []
-        save_data(DB_FILE, curr_db); admin_settings(call.message)
-
     elif call.data == "conf_bc":
         msg = bot.send_message(chat_id, "📢 Send Broadcast Message:")
-        bot.register_next_step_handler(msg, do_broadcast)
-
-def process_add_ch(message):
-    try:
-        parts = message.text.split()
-        config['channels'].append({"username": parts[0], "link": parts[1]})
-        save_data(CONFIG_FILE, config); bot.send_message(message.chat.id, "✅ Added!")
-    except: pass
-
-def do_broadcast(message):
-    u_list = load_data(USER_FILE, {})
-    for uid in u_list.keys():
-        try: bot.send_message(uid, message.text); time.sleep(0.05)
-        except: continue
-    bot.send_message(message.chat.id, "✅ Done!")
+        bot.register_next_step_handler(msg, lambda m: [bot.send_message(u, m.text) for u in users.keys()])
 
 if __name__ == "__main__":
     bot.infinity_polling()
-        
+    
