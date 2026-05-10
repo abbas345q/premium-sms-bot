@@ -100,8 +100,7 @@ def admin_settings(message):
         types.InlineKeyboardButton("📢 Broadcast Message", callback_data="conf_bc"),
         types.InlineKeyboardButton("⚙️ Manage Channels", callback_data="conf_chan")
     )
-    text = (f"🛠 **Admin Control Panel**\n\n💰 Refer Bonus: {config['ref_bonus']} BDT\n🏧 Min Withdraw: {config['min_withdraw']} BDT")
-    bot.send_message(message.chat.id, text, reply_markup=markup)
+    bot.send_message(message.chat.id, "🛠 **Admin Control Panel**", reply_markup=markup)
 
 @bot.message_handler(content_types=['text', 'document'])
 def handle_all(message):
@@ -151,42 +150,47 @@ def handle_query(call):
             
     elif call.data.startswith('sel_'):
         country = call.data.replace('sel_', '')
-        curr_db = load_data(DB_FILE, {})
-        if country in curr_db and isinstance(curr_db[country], list) and len(curr_db[country]) > 0:
-            num = str(curr_db[country].pop(0))
-            save_data(DB_FILE, curr_db)
+        
+        try:
+            curr_db = load_data(DB_FILE, {})
             
-            # ট্র্যাকিং ট্রাই-ব্লক (এটি এরর খেলেও নাম্বার দেখাবে)
-            try:
-                p = phonenumbers.parse(num)
-                m_key = f"{p.country_code}_{num[-3:]}"
-                o_db = load_data(ORDERS_FILE, {})
-                if m_key not in o_db: o_db[m_key] = []
-                o_db[m_key].append(uid)
-                save_data(ORDERS_FILE, o_db)
-            except: pass
+            if country in curr_db and isinstance(curr_db[country], list) and len(curr_db[country]) > 0:
+                num = str(curr_db[country].pop(0))
+                save_data(DB_FILE, curr_db)
+                
+                # অর্ডার সেভ করা
+                try:
+                    p = phonenumbers.parse(num)
+                    m_key = f"{p.country_code}_{num[-3:]}"
+                    o_db = load_data(ORDERS_FILE, {})
+                    if m_key not in o_db: o_db[m_key] = []
+                    o_db[m_key].append(uid)
+                    save_data(ORDERS_FILE, o_db)
+                except: pass
 
-            markup = types.InlineKeyboardMarkup(row_width=1)
-            # ডাইরেক্ট কপি বাটন
-            try:
-                markup.add(types.InlineKeyboardButton(text=f"📱 {num}", copy_text=num))
-            except:
-                markup.add(types.InlineKeyboardButton(text=f"📱 {num} (Tap to Copy)", callback_data="none"))
-            
-            markup.add(
-                types.InlineKeyboardButton("🔄 CHANGE NUMBER", callback_data=f"sel_{country}"),
-                types.InlineKeyboardButton("🌐 CHANGE COUNTRY", callback_data="back_c"),
-                types.InlineKeyboardButton("🚀 GET OTP", url=OTP_GROUP_LINK)
-            )
-            
-            msg_text = f"🎁 Number for: {country}\n\nNumber: {num}\n\n💡 বাটনে ক্লিক করে নাম্বারটি কপি করুন।"
-            # parse_mode সরিয়ে দেওয়া হয়েছে যাতে এডিট ফেল না করে
-            try:
-                bot.edit_message_text(text=msg_text, chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
-            except:
-                bot.send_message(call.message.chat.id, msg_text, reply_markup=markup)
-        else:
-            bot.answer_callback_query(call.id, "❌ স্টক শেষ!", show_alert=True)
+                markup = types.InlineKeyboardMarkup(row_width=1)
+                try:
+                    markup.add(types.InlineKeyboardButton(text=f"📱 {num}", copy_text=num))
+                except:
+                    markup.add(types.InlineKeyboardButton(text=f"📱 {num}", callback_data="none"))
+                
+                markup.add(
+                    types.InlineKeyboardButton("🔄 CHANGE NUMBER", callback_data=f"sel_{country}"),
+                    types.InlineKeyboardButton("🌐 CHANGE COUNTRY", callback_data="back_c"),
+                    types.InlineKeyboardButton("🚀 GET OTP", url=OTP_GROUP_LINK)
+                )
+                
+                msg_text = f"🎁 Number for: {country}\n\nNumber: {num}\n\n💡 বাটনে ক্লিক করে কপি করুন।"
+                
+                try:
+                    bot.edit_message_text(text=msg_text, chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
+                except Exception as e:
+                    # যদি এডিট এরর হয়, তবে নতুন মেসেজ পাঠাবে
+                    bot.send_message(call.message.chat.id, msg_text, reply_markup=markup)
+            else:
+                bot.answer_callback_query(call.id, f"❌ {country} স্টক শেষ!", show_alert=True)
+        except Exception as e:
+            bot.send_message(call.message.chat.id, f"⚠️ Error: {str(e)}")
 
     elif call.data == "back_c":
         send_country_list(call.message.chat.id, call.message.message_id)
@@ -274,4 +278,4 @@ def send_country_list(chat_id, message_id=None):
 
 if __name__ == "__main__":
     bot.infinity_polling()
-                                      
+        
