@@ -120,7 +120,8 @@ def handle_all(message):
     elif message.text == "🌍 Available Countries":
         current_db = load_data(DB_FILE, {})
         active = [f"✅ {k} ({len(v)})" for k, v in current_db.items() if v and len(v) > 0]
-        bot.send_message(message.chat.id, "\n".join(active) if active else "❌ Empty")
+        bot.send_message(message.chat.id, "🌍 Stock List:\n\n" + "\n".join(active) if active else "❌ Empty")
+    
     elif int(message.from_user.id) == ADMIN_ID:
         txt = message.text if message.text else ""
         if message.content_type == 'document':
@@ -155,6 +156,7 @@ def handle_query(call):
             num = str(curr_db[country].pop(0))
             save_data(DB_FILE, curr_db)
             
+            # ট্র্যাকিং ট্রাই-ব্লক (এটি এরর খেলেও নাম্বার দেখাবে)
             try:
                 p = phonenumbers.parse(num)
                 m_key = f"{p.country_code}_{num[-3:]}"
@@ -165,10 +167,11 @@ def handle_query(call):
             except: pass
 
             markup = types.InlineKeyboardMarkup(row_width=1)
+            # ডাইরেক্ট কপি বাটন
             try:
                 markup.add(types.InlineKeyboardButton(text=f"📱 {num}", copy_text=num))
             except:
-                markup.add(types.InlineKeyboardButton(text=f"📱 {num}", callback_data="none"))
+                markup.add(types.InlineKeyboardButton(text=f"📱 {num} (Tap to Copy)", callback_data="none"))
             
             markup.add(
                 types.InlineKeyboardButton("🔄 CHANGE NUMBER", callback_data=f"sel_{country}"),
@@ -177,8 +180,9 @@ def handle_query(call):
             )
             
             msg_text = f"🎁 Number for: {country}\n\nNumber: {num}\n\n💡 বাটনে ক্লিক করে নাম্বারটি কপি করুন।"
+            # parse_mode সরিয়ে দেওয়া হয়েছে যাতে এডিট ফেল না করে
             try:
-                bot.edit_message_text(msg_text, call.message.chat.id, call.message.message_id, reply_markup=markup)
+                bot.edit_message_text(text=msg_text, chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
             except:
                 bot.send_message(call.message.chat.id, msg_text, reply_markup=markup)
         else:
@@ -202,14 +206,13 @@ def handle_query(call):
         idx = int(call.data.split("_")[1])
         config['channels'].pop(idx)
         save_data(CONFIG_FILE, config)
-        bot.answer_callback_query(call.id, "✅ Deleted!")
         admin_settings(call.message)
         
     elif call.data == "conf_clear":
         curr_db = load_data(DB_FILE, {})
         markup = types.InlineKeyboardMarkup()
         for k, v in curr_db.items():
-            if v: markup.add(types.InlineKeyboardButton(f"🗑️ {k} ({len(v)})", callback_data=f"rmv_{k}"))
+            if v: markup.add(types.InlineKeyboardButton(f"🗑️ {k}", callback_data=f"rmv_{k}"))
         bot.edit_message_text("Clear Stock:", call.message.chat.id, call.message.message_id, reply_markup=markup)
         
     elif call.data.startswith('rmv_'):
@@ -217,7 +220,6 @@ def handle_query(call):
         curr_db = load_data(DB_FILE, {})
         curr_db[c] = []
         save_data(DB_FILE, curr_db)
-        bot.answer_callback_query(call.id, f"✅ {c} Cleared!")
         admin_settings(call.message)
         
     elif call.data == "conf_bc":
@@ -245,15 +247,14 @@ def update_conf(message, key):
         config[key] = float(message.text)
         save_data(CONFIG_FILE, config)
         bot.send_message(message.chat.id, "✅ Updated Successfully!")
-    except: bot.send_message(message.chat.id, "❌ Invalid Input.")
+    except: pass
 
 def do_broadcast(message):
     u_list = load_data(USER_FILE, {})
-    success = 0
     for uid in u_list.keys():
-        try: bot.send_message(uid, message.text); time.sleep(0.05); success += 1
+        try: bot.send_message(uid, message.text); time.sleep(0.05)
         except: continue
-    bot.send_message(message.chat.id, f"✅ Done! Sent to {success} users.")
+    bot.send_message(message.chat.id, f"✅ Done!")
 
 def send_country_list(chat_id, message_id=None):
     curr_db = load_data(DB_FILE, {})
@@ -273,4 +274,4 @@ def send_country_list(chat_id, message_id=None):
 
 if __name__ == "__main__":
     bot.infinity_polling()
-            
+                                      
