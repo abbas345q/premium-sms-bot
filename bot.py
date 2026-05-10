@@ -75,6 +75,7 @@ def detect_country(num_str):
 def handle_start(message):
     uid = str(message.from_user.id)
     name = message.from_user.first_name
+    
     if not is_user_joined_all(message.from_user.id):
         markup = types.InlineKeyboardMarkup(row_width=1)
         for i, ch in enumerate(config['channels'], 1):
@@ -82,7 +83,9 @@ def handle_start(message):
         markup.add(types.InlineKeyboardButton("✅ Verify Join", callback_data="verify_join"))
         bot.send_message(message.chat.id, "✨ **সার্ভিসটি ব্যবহার করতে নিচের চ্যানেলে জয়েন করুন।**", reply_markup=markup, parse_mode="Markdown")
         return
+
     u_data, is_new = get_user(message.from_user.id, name)
+
     args = message.text.split()
     if len(args) > 1 and is_new:
         ref_id = args[1]
@@ -92,8 +95,18 @@ def handle_start(message):
             save_data(USER_FILE, users)
             try: bot.send_message(ref_id, f"🎊 Referral Bonus Earned! {config['ref_bonus']} BDT")
             except: pass
+
     if is_new:
-        welcome_text = (f"👑 **Welcome , {name}!**\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n🌟 **Premium OTP & SMS Hub**-এ আপনাকে স্বাগতম।\n\n🚀 **আমাদের বিশেষত্ব:**\n⚡️ আল্ট্রা-ফাস্ট ওটিপি ডেলিভারি সিস্টেম।\n🌍 বিশ্বের ১০০+ দেশের নাম্বার।\n🛡 ১০০% নিরাপদ এবং প্রাইভেট ট্রানজেকশন।\n━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        welcome_text = (
+            f"👑 **Welcome , {name}!**\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🌟 **Premium OTP & SMS Hub**-এ আপনাকে স্বাগতম।\n\n"
+            f"🚀 **আমাদের বিশেষত্ব:**\n"
+            f"⚡️ আল্ট্রা-ফাস্ট ওটিপি ডেলিভারি সিস্টেম।\n"
+            f"🌍 বিশ্বের ১০০+ দেশের নাম্বার ।\n"
+            f"🛡 ১০০% নিরাপদ এবং প্রাইভেট ট্রানজেকশন।\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        )
         bot.send_message(message.chat.id, welcome_text, reply_markup=main_keyboard(), parse_mode="Markdown")
     else:
         send_country_list(message.chat.id)
@@ -117,6 +130,7 @@ def handle_all(message):
     if not is_user_joined_all(message.from_user.id): return
     uid = str(message.from_user.id)
     u_data, _ = get_user(uid)
+
     if message.text == "📞 Get Number":
         send_country_list(message.chat.id)
     elif message.text == "💰 Balance":
@@ -130,6 +144,7 @@ def handle_all(message):
         current_db = load_data(DB_FILE, {})
         active = [f"✅ {k} ({len(v)})" for k, v in current_db.items() if v and len(v) > 0]
         bot.send_message(message.chat.id, "🌍 **Stock List:**\n\n" + "\n".join(active) if active else "❌ Empty", parse_mode="Markdown")
+    
     elif int(message.from_user.id) == ADMIN_ID:
         txt = message.text if message.text else ""
         if message.content_type == 'document':
@@ -186,45 +201,37 @@ def handle_query(call):
     elif call.data == "add_ch":
         msg = bot.send_message(call.message.chat.id, "Send Channel `@Username Link`:")
         bot.register_next_step_handler(msg, process_add_ch)
-        elif call.data.startswith('sel_'):
+    elif call.data == "delch_":
+        idx = int(call.data.split("_")[1])
+        config['channels'].pop(idx)
+        save_data(CONFIG_FILE, config)
+        bot.answer_callback_query(call.id, "✅ Deleted!")
+        admin_settings(call.message)
+    elif call.data.startswith('sel_'):
         country = call.data.replace('sel_', '')
         curr_db = load_data(DB_FILE, {})
-        
         if country in curr_db and curr_db[country]:
-            num = str(curr_db[country].pop(0)) # নম্বর পপ করা
+            num = str(curr_db[country].pop(0))
             save_data(DB_FILE, curr_db)
-            
             try:
                 p = phonenumbers.parse(num)
                 m_key = f"{p.country_code}_{num[-3:]}"
                 o_db = load_data(ORDERS_FILE, {})
                 if m_key not in o_db: o_db[m_key] = []
-                o_db[m_key].append(uid)
-                save_data(ORDERS_FILE, o_db)
+                o_db[m_key].append(uid); save_data(ORDERS_FILE, o_db)
             except: pass
 
             markup = types.InlineKeyboardMarkup(row_width=1)
-            # ডাইরেক্ট কপি বাটন
-            try:
-                markup.add(types.InlineKeyboardButton(text=f"📱 {num}", copy_text=num))
-            except:
-                markup.add(types.InlineKeyboardButton(text=f"📱 {num} (Tap to Copy)", callback_data="none"))
-            
+            try: markup.add(types.InlineKeyboardButton(text=f"📱 {num}", copy_text=num))
+            except: markup.add(types.InlineKeyboardButton(text=f"📱 {num}", callback_data="none"))
             markup.add(
                 types.InlineKeyboardButton("🔄 CHANGE NUMBER", callback_data=f"sel_{country}"),
                 types.InlineKeyboardButton("🌐 CHANGE COUNTRY", callback_data="back_c"),
                 types.InlineKeyboardButton("🚀 GET OTP", url=OTP_GROUP_LINK)
             )
-            
-            # আমরা এখানে parse_mode সরিয়ে দিচ্ছি যাতে '+' চিহ্নের জন্য ক্রাশ না করে
             msg_text = f"🎁 Number for: {country}\n\nNumber: {num}\n\n💡 বাটনে ক্লিক করে নাম্বারটি কপি করুন।"
-            
-            try:
-                # এখানে parse_mode নেই, তাই ১০০% কাজ করবে
-                bot.edit_message_text(msg_text, call.message.chat.id, call.message.message_id, reply_markup=markup)
-            except:
-                # যদি এডিট এরর দেয়, তবে নতুন মেসেজ পাঠিয়ে দিবে
-                bot.send_message(call.message.chat.id, msg_text, reply_markup=markup)
+            try: bot.edit_message_text(msg_text, call.message.chat.id, call.message.message_id, reply_markup=markup)
+            except: bot.send_message(call.message.chat.id, msg_text, reply_markup=markup)
         else:
             bot.answer_callback_query(call.id, "❌ স্টক শেষ!", show_alert=True)
 
@@ -266,4 +273,3 @@ def send_country_list(chat_id, message_id=None):
 
 if __name__ == "__main__":
     bot.infinity_polling()
-    
