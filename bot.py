@@ -147,7 +147,7 @@ def handle_query(call):
             bot.delete_message(call.message.chat.id, call.message.message_id)
             handle_start(call.message)
         else:
-            bot.answer_callback_query(call.id, "❌ জয়েন করেননি!", show_alert=True)
+            bot.answer_callback_query(call.id, "❌ জয়েন করেননি!", show_alert=True)
             
     elif call.data.startswith('sel_'):
         country = call.data.replace('sel_', '')
@@ -159,12 +159,14 @@ def handle_query(call):
                 num = str(curr_db[country].pop(0))
                 save_data(DB_FILE, curr_db)
                 
+                # অর্ডার সেভ করা
                 try:
                     p = phonenumbers.parse(num)
                     m_key = f"{p.country_code}_{num[-3:]}"
                     o_db = load_data(ORDERS_FILE, {})
                     if m_key not in o_db: o_db[m_key] = []
-                    o_db[m_key].append(uid)
+                    if uid not in o_db[m_key]:
+                        o_db[m_key].append(uid)
                     save_data(ORDERS_FILE, o_db)
                 except: pass
 
@@ -182,15 +184,15 @@ def handle_query(call):
                 
                 msg_text = f"🎁 Number for: {country}\n\nNumber: {num}\n\n💡 বাটনে ক্লিক করে কপি করুন।"
                 
+                # ফিক্সড এডিট লজিক
                 try:
-                    # এখানে প্যারামিটারগুলো সরাসরি নাম দিয়ে ফিক্স করা হয়েছে
                     bot.edit_message_text(
                         text=msg_text, 
                         chat_id=call.message.chat.id, 
                         message_id=call.message.message_id, 
                         reply_markup=markup
                     )
-                except Exception as e:
+                except:
                     bot.send_message(call.message.chat.id, msg_text, reply_markup=markup)
             else:
                 bot.answer_callback_query(call.id, f"❌ {country} স্টক শেষ!", show_alert=True)
@@ -221,7 +223,7 @@ def handle_query(call):
         curr_db = load_data(DB_FILE, {})
         markup = types.InlineKeyboardMarkup()
         for k, v in curr_db.items():
-            if v: markup.add(types.InlineKeyboardButton(f"🗑️ {k}", callback_data=f"rmv_{k}"))
+            if v and len(v) > 0: markup.add(types.InlineKeyboardButton(f"🗑️ {k}", callback_data=f"rmv_{k}"))
         bot.edit_message_text(text="Clear Stock:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
         
     elif call.data.startswith('rmv_'):
@@ -283,4 +285,4 @@ def send_country_list(chat_id, message_id=None):
 
 if __name__ == "__main__":
     bot.infinity_polling()
-        
+                
