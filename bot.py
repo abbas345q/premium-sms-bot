@@ -100,7 +100,8 @@ def admin_settings(message):
         types.InlineKeyboardButton("📢 Broadcast Message", callback_data="conf_bc"),
         types.InlineKeyboardButton("⚙️ Manage Channels", callback_data="conf_chan")
     )
-    bot.send_message(message.chat.id, "🛠 **Admin Control Panel**", reply_markup=markup)
+    text = (f"🛠 **Admin Control Panel**\n\n💰 Refer Bonus: {config['ref_bonus']} BDT\n🏧 Min Withdraw: {config['min_withdraw']} BDT")
+    bot.send_message(message.chat.id, text, reply_markup=markup)
 
 @bot.message_handler(content_types=['text', 'document'])
 def handle_all(message):
@@ -158,7 +159,6 @@ def handle_query(call):
                 num = str(curr_db[country].pop(0))
                 save_data(DB_FILE, curr_db)
                 
-                # অর্ডার সেভ করা
                 try:
                     p = phonenumbers.parse(num)
                     m_key = f"{p.country_code}_{num[-3:]}"
@@ -183,9 +183,14 @@ def handle_query(call):
                 msg_text = f"🎁 Number for: {country}\n\nNumber: {num}\n\n💡 বাটনে ক্লিক করে কপি করুন।"
                 
                 try:
-                    bot.edit_message_text(text=msg_text, chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
+                    # এখানে প্যারামিটারগুলো সরাসরি নাম দিয়ে ফিক্স করা হয়েছে
+                    bot.edit_message_text(
+                        text=msg_text, 
+                        chat_id=call.message.chat.id, 
+                        message_id=call.message.message_id, 
+                        reply_markup=markup
+                    )
                 except Exception as e:
-                    # যদি এডিট এরর হয়, তবে নতুন মেসেজ পাঠাবে
                     bot.send_message(call.message.chat.id, msg_text, reply_markup=markup)
             else:
                 bot.answer_callback_query(call.id, f"❌ {country} স্টক শেষ!", show_alert=True)
@@ -200,7 +205,7 @@ def handle_query(call):
         markup.add(types.InlineKeyboardButton("➕ Add Channel", callback_data="add_ch"))
         for i, ch in enumerate(config['channels']):
             markup.add(types.InlineKeyboardButton(f"🗑️ Delete {ch['username']}", callback_data=f"delch_{i}"))
-        bot.edit_message_text("⚙️ Manage Channels:", call.message.chat.id, call.message.message_id, reply_markup=markup)
+        bot.edit_message_text(text="⚙️ Manage Channels:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
     
     elif call.data == "add_ch":
         msg = bot.send_message(call.message.chat.id, "Send Channel `@Username Link`:")
@@ -217,7 +222,7 @@ def handle_query(call):
         markup = types.InlineKeyboardMarkup()
         for k, v in curr_db.items():
             if v: markup.add(types.InlineKeyboardButton(f"🗑️ {k}", callback_data=f"rmv_{k}"))
-        bot.edit_message_text("Clear Stock:", call.message.chat.id, call.message.message_id, reply_markup=markup)
+        bot.edit_message_text(text="Clear Stock:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=markup)
         
     elif call.data.startswith('rmv_'):
         c = call.data.replace('rmv_', '')
@@ -271,7 +276,7 @@ def send_country_list(chat_id, message_id=None):
         markup.add(types.InlineKeyboardButton(f"{c} ({len(active[c])})", callback_data=f"sel_{c}"))
     txt = "📍 **Select Country:**"
     if message_id:
-        try: bot.edit_message_text(txt, chat_id, message_id, reply_markup=markup)
+        try: bot.edit_message_text(text=txt, chat_id=chat_id, message_id=message_id, reply_markup=markup)
         except: pass
     else:
         bot.send_message(chat_id, txt, reply_markup=markup)
