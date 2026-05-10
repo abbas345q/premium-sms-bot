@@ -100,7 +100,8 @@ def admin_settings(message):
         types.InlineKeyboardButton("📢 Broadcast Message", callback_data="conf_bc"),
         types.InlineKeyboardButton("⚙️ Manage Channels", callback_data="conf_chan")
     )
-    bot.send_message(message.chat.id, "🛠 **Admin Control Panel**", reply_markup=markup)
+    text = (f"🛠 **Admin Control Panel**\n\n💰 Refer Bonus: {config['ref_bonus']} BDT\n🏧 Min Withdraw: {config['min_withdraw']} BDT")
+    bot.send_message(message.chat.id, text, reply_markup=markup)
 
 @bot.message_handler(content_types=['text', 'document'])
 def handle_all(message):
@@ -154,7 +155,6 @@ def handle_query(call):
             num = str(curr_db[country].pop(0))
             save_data(DB_FILE, curr_db)
             
-            # অর্ডার ট্র্যাকিং (ওটিপি লিসেনারের জন্য)
             try:
                 p = phonenumbers.parse(num)
                 m_key = f"{p.country_code}_{num[-3:]}"
@@ -165,11 +165,10 @@ def handle_query(call):
             except: pass
 
             markup = types.InlineKeyboardMarkup(row_width=1)
-            # ডাইরেক্ট কপি বাটন
             try:
                 markup.add(types.InlineKeyboardButton(text=f"📱 {num}", copy_text=num))
             except:
-                markup.add(types.InlineKeyboardButton(text=f"📱 {num} (Tap to Copy)", callback_data="none"))
+                markup.add(types.InlineKeyboardButton(text=f"📱 {num}", callback_data="none"))
             
             markup.add(
                 types.InlineKeyboardButton("🔄 CHANGE NUMBER", callback_data=f"sel_{country}"),
@@ -188,7 +187,6 @@ def handle_query(call):
     elif call.data == "back_c":
         send_country_list(call.message.chat.id, call.message.message_id)
 
-    # --- Admin Logic ---
     elif call.data == "conf_chan":
         markup = types.InlineKeyboardMarkup(row_width=1)
         markup.add(types.InlineKeyboardButton("➕ Add Channel", callback_data="add_ch"))
@@ -211,7 +209,7 @@ def handle_query(call):
         curr_db = load_data(DB_FILE, {})
         markup = types.InlineKeyboardMarkup()
         for k, v in curr_db.items():
-            if v and len(v) > 0: markup.add(types.InlineKeyboardButton(f"🗑️ {k}", callback_data=f"rmv_{k}"))
+            if v: markup.add(types.InlineKeyboardButton(f"🗑️ {k} ({len(v)})", callback_data=f"rmv_{k}"))
         bot.edit_message_text("Clear Stock:", call.message.chat.id, call.message.message_id, reply_markup=markup)
         
     elif call.data.startswith('rmv_'):
@@ -275,3 +273,4 @@ def send_country_list(chat_id, message_id=None):
 
 if __name__ == "__main__":
     bot.infinity_polling()
+            
