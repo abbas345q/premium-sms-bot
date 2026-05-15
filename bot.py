@@ -156,7 +156,7 @@ def handle_all(message):
                 num = f"+{r.lstrip('+')}"
                 if num not in curr_db[c_name]:
                     curr_db[c_name].append(num)
-                    added += 3
+                    added += 1
             save_data(DB_FILE, curr_db)
             bot.reply_to(message, f"✅ Added {added} numbers.")
 
