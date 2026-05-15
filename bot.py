@@ -176,16 +176,26 @@ def handle_query(call):
         country = call.data.replace('sel_', '')
         curr_db = load_data(DB_FILE, {})
         if country in curr_db and curr_db[country]:
-            num = str(curr_db[country].pop(0))
+            # --- পরিবর্তিত অংশ: একসাথে ৩টি নাম্বার নেয়ার লজিক ---
+            delivered_numbers = []
+            for _ in range(3):
+                if curr_db[country]:
+                    delivered_numbers.append(str(curr_db[country].pop(0)))
+            
             save_data(DB_FILE, curr_db)
+            
+            # নাম্বারগুলোকে সাজিয়ে টেক্সট তৈরি
+            num_text = "\n".join([f"`{n}`" for n in delivered_numbers])
+            
             markup = types.InlineKeyboardMarkup(row_width=1)
             markup.add(
-                types.InlineKeyboardButton("🔄 CHANGE NUMBER", callback_data=f"sel_{country}"),
+                types.InlineKeyboardButton("🔄 CHANGE NUMBERS", callback_data=f"sel_{country}"),
                 types.InlineKeyboardButton("🌐 CHANGE COUNTRY", callback_data="back_c"),
                 types.InlineKeyboardButton("🚀 GET OTP", url=OTP_GROUP_LINK)
             )
-            msg_text = f"🌍 **Country:** {country}\n━━━━━━━━━━━━━━\n`{num}`\n━━━━━━━━━━━━━━\n💡 **Tap to copy!**"
+            msg_text = f"🌍 **Country:** {country}\n━━━━━━━━━━━━━━\n{num_text}\n━━━━━━━━━━━━━━\n💡 **Tap to copy!**"
             bot.edit_message_text(msg_text, chat_id, message_id, reply_markup=markup, parse_mode="Markdown")
+            # ------------------------------------------------
         else: bot.answer_callback_query(call.id, "❌ স্টক শেষ!", show_alert=True)
 
     elif call.data == "back_c":
@@ -270,4 +280,4 @@ def do_broadcast(message):
 
 if __name__ == "__main__":
     bot.infinity_polling()
-    
+
