@@ -15,7 +15,6 @@ DB_FILE = 'numbers_db.json'
 USER_FILE = 'users_data.json'
 CONFIG_FILE = 'settings.json'
 OTP_GROUP_LINK = "https://t.me/Premium_OTP_chat"
-OTP_GROUP_ID = -1002295608331
 
 bot = telebot.TeleBot(API_TOKEN, threaded=False)
 
@@ -33,7 +32,6 @@ def save_data(file, data):
     except: pass
 
 config = load_data(CONFIG_FILE, {"ref_bonus": 2.0, "min_withdraw": 500.0, "channels": []})
-processed_otps = set()
 
 def is_user_joined_all(user_id):
     if not config.get('channels'): return True
@@ -74,61 +72,6 @@ def send_country_list(chat_id, message_id=None):
         if message_id: bot.edit_message_text(txt, chat_id, message_id, reply_markup=markup)
         else: bot.send_message(chat_id, txt, reply_markup=markup)
     except: pass
-
-def process_single_otp_message(txt):
-    if not txt: return
-    try:
-        clean_txt = re.sub(r'[\s\-\+\(\):,_\*]', '', txt)
-        current_users = load_data(USER_FILE, {})
-        
-        for uid, u_info in current_users.items():
-            if not isinstance(u_info, dict): continue
-            active_numbers = u_info.get("active_numbers", [])
-            if not active_numbers: continue
-            
-            for num_obj in active_numbers:
-                clean_num = re.sub(r'\D', '', num_obj["number"])
-                if len(clean_num) < 4: continue
-                
-                user_last_4 = clean_num[-4:]
-                if user_last_4 in clean_txt:
-                    otp_match = re.search(r'(?:OTP|code|🔑|🧑‍💻|verification|sms)[:\s]*(\d+)', txt, re.IGNORECASE)
-                    if otp_match:
-                        otp_code = otp_match.group(1)
-                    else:
-                        all_digits = re.findall(r'\b\d{4,8}\b', txt)
-                        possible_codes = [d for d in all_digits if d not in clean_num]
-                        otp_code = possible_codes[0] if possible_codes else "Not Found"
-
-                    unique_key = f"{uid}_{user_last_4}_{otp_code}"
-                    if unique_key in processed_otps: return
-                    processed_otps.add(unique_key)
-
-                    service_name = "Premium Service"
-                    apps = ["Telegram", "WhatsApp", "Imo", "Facebook", "Google", "Viber", "TikTok", "Snapchat"]
-                    for app in apps:
-                        if app.lower() in txt.lower():
-                            service_name = app
-                            break
-
-                    final_msg = (
-                        f"✨ **NEW OTP RECEIVED!**\n"
-                        f"━━━━━━━━━━━━━━━━━━\n"
-                        f"📱 **Service:** {service_name}\n"
-                        f"🔢 **Number:** `{num_obj['number']}`\n"
-                        f"🔑 **OTP Code:** `{otp_code}`\n"
-                        f"━━━━━━━━━━━━━━━━━━"
-                    )
-                    try:
-                        bot.send_message(int(uid), final_msg, parse_mode="Markdown")
-                    except: pass
-                    return
-    except: pass
-
-@bot.message_handler(func=lambda message: message.chat.id == OTP_GROUP_ID, content_types=['text', 'photo', 'document'])
-def listen_otp_group(message):
-    txt = message.text if message.text else (message.caption if message.caption else "")
-    process_single_otp_message(txt)
 
 @bot.message_handler(commands=['start'])
 def handle_start(message):
@@ -175,7 +118,6 @@ def admin_settings(message):
 
 @bot.message_handler(content_types=['text', 'document'])
 def handle_all(message):
-    if message.chat.id == OTP_GROUP_ID: return
     uid = str(message.from_user.id)
     if not is_user_joined_all(message.from_user.id): return
     
@@ -240,7 +182,7 @@ def handle_query(call):
             
             users[uid]["active_numbers"] = []
             delivered_numbers = []
-            take_count = min(2, len(curr_db[country]))
+            take_count = min(3, len(curr_db[country]))
             for _ in range(take_count):
                 if curr_db[country]:
                     raw_num = str(curr_db[country].pop(0))
@@ -370,7 +312,7 @@ def do_broadcast(message):
     bot.send_message(message.chat.id, "✅ Broadcast Done!")
 
 def run_panel_file():
-    print("[Thread Manager] panel_number.py ব্যাকগ্রাউন্ডে সফলভাবে চালু হয়েছে...")
+    print("[Thread Manager] panel_number.py ব্যাকগ্রাউন্ডে সফলভাবে चालू হয়েছে...")
     try:
         if os.path.exists("panel_number.py"):
             exec(open("panel_number.py", encoding="utf-8").read(), globals())
