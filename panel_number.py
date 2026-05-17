@@ -5,18 +5,18 @@ import json
 import os
 from datetime import datetime, timedelta
 
-# 🔥 মেইন ফাইল (number_bot) থেকে ওটিপি প্রসেসর ও সেটিংস নিয়ে আসা হচ্ছে
-from number_bot import OTP_GROUP_ID, USER_FILE, process_single_otp_message
-
-# === API CONFIGURATION ===
+# === CONFIGURATION ===
 PANEL_NAME = "Premium OTP Panel" 
 API_TOKEN = 'RlFTQ0pBUzRiZHhJVIlVioZthlVIaWZdVI-Dg3ODkUmCZHNFWISIig=='
 API_BASE_URL = 'http://147.135.212.197/crapi/st/viewstats'
 
 BOT_TOKEN = '7634786660:AAHvY09ndmYnO6pLpz_84rSLqGUEMlfwNd4'
-SENT_FILE = 'db_number_panel.json' # প্যানেলের জন্য ওটিপি ট্র্যাকিং ডাটাবেস
+OTP_GROUP_ID = -1002295608331
+SENT_FILE = 'db_number_panel.json'
 
-# আইকন ও দেশ সেটিংস (গ্রুপে প্রিমিয়াম স্টাইলে মেসেজ পাঠানোর জন্য)
+# ডুপ্লিকেট কানেকশন এড়াতে রান-টাইমে সেফ ইমপোর্ট করা হলো
+from number_bot import process_single_otp_message
+
 COUNTRY_MAP = {"263": "🇿🇼 ZW", "964": "🇮🇶 IQ", "880": "🇧🇩 BD", "91": "🇮🇳 IN", "1": "🇺🇸 US", "234": "🇳🇬 NG"}
 SERVICE_ICONS = {"facebook": "🔵 Facebook", "whatsapp": "🟢 WhatsApp", "telegram": "✈️ Telegram"}
 
@@ -30,7 +30,6 @@ def get_flag(number):
     return "🌐 Global"
 
 def send_to_telegram_group_premium(service, number, otp, full_msg):
-    """গ্রুপে ওটিপি আসার সাথে সাথে প্রিমিয়াম স্টাইলে ফরওয়ার্ড করার ফাংশন"""
     flag = get_flag(number)
     srv_name = service.lower()
     header = next((v for k, v in SERVICE_ICONS.items() if k in srv_name), f"🔔 {service.upper()}")
@@ -68,7 +67,6 @@ def main():
     print(f"📡 [Railway Log] কোড স্ক্যানিং শুরু... প্রতি ৪ সেকেন্ড পর পর এপিআই চেক করা হচ্ছে।")
     print("--------------------------------------------------")
     
-    # মেমোরি ফাইল লোড করা
     if os.path.exists(SENT_FILE):
         try:
             with open(SENT_FILE, 'r') as f:
@@ -98,10 +96,10 @@ def main():
                                 otp_match = re.search(r'\b(\d{4,8})\b', msg)
                                 otp = otp_match.group() if otp_match else "N/A"
                                 
-                                # রেলওয়ে লগে ওটিপি ট্র্যাকিং প্রিন্ট (লাইভ দেখার জন্য)
+                                # রেলওয়ে কনসোলে লাইভ ওটিপি ট্র্যাকিং প্রিন্ট
                                 print(f"🔥 [Railway Log] New OTP Detected! Service: {srv} | Number: {num}")
                                 
-                                # ১. গ্রুপে প্রিমিয়াম স্টাইলে ফরওয়ার্ড হবে
+                                # ১. মেইন ওটিপি গ্রুপে পুশ হবে
                                 send_to_telegram_group_premium(srv, num, otp, msg)
                                 
                                 # ২. ইউজারের ব্যক্তিগত ইনবক্সে পুশ হবে
@@ -115,15 +113,15 @@ def main():
                         with open(SENT_FILE, 'w') as f:
                             json.dump(list(sent_set), f)
                 else:
-                    # লগে প্রিন্ট হবে যে কানেকশন ঠিক আছে কিন্তু প্যানেল খালি
-                    print(f"📡 [Railway Log] চেক করা হয়েছে: প্যানেলে এই মুহূর্তে নতুন কোনো ওটিপি নেই।")
+                    print(f"📡 [Railway Log] চেক করা হয়েছে: প্যানেলে নতুন কোনো ওটিপি নেই।")
             else:
                 print(f"❌ [Railway Log] API Error: সার্ভার রেসপন্স কোড {res.status_code}")
             
-            time.sleep(2) 
+            time.sleep(4) 
         except Exception as e:
             print(f"⚠️ [Railway Log] লুপে সমস্যা হয়েছে: {str(e)}")
-            time.sleep(5)
+            time.sleep(8)
 
 if __name__ == "__main__":
     main()
+    
