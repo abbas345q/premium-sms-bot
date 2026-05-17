@@ -14,6 +14,7 @@ DB_FILE = 'numbers_db.json'
 USER_FILE = 'users_data.json'
 CONFIG_FILE = 'settings.json'
 OTP_GROUP_LINK = "https://t.me/Premium_OTP_chat"
+OTP_GROUP_ID = -1002295608331  # ওটিপি গ্রুপ আইডি
 
 bot = telebot.TeleBot(API_TOKEN, threaded=False)
 
@@ -30,6 +31,7 @@ def save_data(file, data):
 
 config = load_data(CONFIG_FILE, {"ref_bonus": 2.0, "min_withdraw": 500.0, "channels": []})
 users = load_data(USER_FILE, {})
+processed_otps = set()  # ডুপ্লিকেট ওটিপি ফিল্টার করার জন্য
 
 def is_user_joined_all(user_id):
     if not config.get('channels'): return True
@@ -75,6 +77,16 @@ def send_country_list(chat_id, message_id=None):
             bot.send_message(chat_id, txt, reply_markup=markup)
     except: pass
 
+# --- SECRET BACKUP COMMAND ---
+@bot.message_handler(commands=['backup_db'])
+def send_backup_file(message):
+    if int(message.from_user.id) != ADMIN_ID: return
+    if os.path.exists(DB_FILE):
+        with open(DB_FILE, 'rb') as f:
+            bot.send_document(message.chat.id, f, caption="📦 Your Numbers DB Backup")
+    else:
+        bot.send_message(message.chat.id, "❌ No database file found.")
+
 # --- HANDLERS ---
 @bot.message_handler(commands=['start'])
 def handle_start(message):
@@ -90,7 +102,7 @@ def handle_start(message):
         return
 
     if uid not in users:
-        users[uid] = {"balance": 0.0, "ref_count": 0, "name": name, "joined": True}
+        users[uid] = {"balance": 0.0, "ref_count": 0, "name": name, "joined": True, "active_numbers": []}
         save_data(USER_FILE, users)
 
     welcome_msg = (
@@ -117,8 +129,64 @@ def admin_settings(message):
     text = (f"🛠 **Admin Control Panel**\n\n💰 Refer Bonus: {config['ref_bonus']} BDT\n🏧 Min Withdraw: {config['min_withdraw']} BDT")
     bot.send_message(message.chat.id, text, reply_markup=markup)
 
+# 🔥 --- AUTOMATIC OTP GROUP LISTENER (COMPACT SMART VERSION) --- 🔥
+@bot.message_handler(func=lambda message: message.chat.id == OTP_GROUP_ID)
+def listen_otp_group(message):
+    txt = message.text if message.text else (message.caption if message.caption else "")
+    if not txt: return
+
+    # গ্রুপের মেসেজ থেকে স্টার (*), স্পেস এবং চিহ্ন রিমুভ করে ক্লিন করা
+    clean_txt = re.sub(r'[\s\*\-\+\(\)]', '', txt)
+
+    current_users = load_data(USER_FILE, {})
+    
+    for uid, u_data in current_users.items():
+        active_list = u_data.get("active_numbers", [])
+        for item in active_list:
+            saved_num = item["number"].replace("+", "")
+            
+            # নাম্বারের প্রথম ৪ ডিজিট এবং শেষ ৪ ডিজিট আলাদা করা
+            start_part = saved_num[:4]
+            end_part = saved_num[-4:]
+            
+            # নিখুঁত ম্যাচিং লজিক (স্টার বা ড্যাশ থাকলেও প্রথম ৪ ও শেষ ৪ মিললেই ডিটেক্ট হবে)
+            if start_part in clean_txt and end_part in clean_txt:
+                unique_key = f"{uid}_{saved_num}_{txt.strip()}"
+                if unique_key in processed_otps: return
+                processed_otps.add(unique_key)
+
+                # ওটিপি কোড খোঁজা (৪ থেকে ৮ ডিজিট অথবা ড্যাশসহ কোড)
+                otp_match = re.search(r'\b\d{3,4}-\d{3,4}\b|\b\d{4,8}\b', txt)
+                otp_code = otp_match.group(0) if otp_match else "Not Found"
+
+                # কোন অ্যাপের ওটিপি তা ডিটেক্ট করা
+                service_name = "Unknown Service"
+                apps = ["Telegram", "WhatsApp", "Imo", "Facebook", "Google", "Viber", "Kakao", "TikTok", "WeChat", "Line"]
+                for app in apps:
+                    if app.lower() in txt.lower():
+                        service_name = app
+                        break
+
+                # আপনার চাহিদামতো ছিমছাম ফাইনাল ফরমেট (Full Text বাদ দেওয়া হয়েছে)
+                final_msg = (
+                    f"✨ **NEW OTP RECEIVED!**\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"🌍 **Country:** {item['country']}\n"
+                    f"📱 **Service:** {service_name}\n"
+                    f"🔢 **Number:** `{item['number']}`\n"
+                    f"🔑 **OTP:** `{otp_code}`\n"
+                    f"━━━━━━━━━━━━━━━━━━"
+                )
+                
+                try:
+                    bot.send_message(int(uid), final_msg, parse_mode="Markdown")
+                except: pass
+                return
+
 @bot.message_handler(content_types=['text', 'document'])
 def handle_all(message):
+    if message.chat.id == OTP_GROUP_ID: return
+
     uid = str(message.from_user.id)
     if not is_user_joined_all(message.from_user.id): return
     
@@ -176,15 +244,22 @@ def handle_query(call):
         country = call.data.replace('sel_', '')
         curr_db = load_data(DB_FILE, {})
         if country in curr_db and curr_db[country]:
-            # --- পরিবর্তিত অংশ: একসাথে ৩টি নাম্বার নেয়ার লজিক ---
+            global users
+            users = load_data(USER_FILE, {})
+            if uid not in users: users[uid] = {"balance": 0.0, "ref_count": 0, "name": call.from_user.first_name, "joined": True, "active_numbers": []}
+            if "active_numbers" not in users[uid]: users[uid]["active_numbers"] = []
+
+            # ৩টি নাম্বার ট্র্যাকিং লিস্টে পুশ করা
             delivered_numbers = []
-            for _ in range(3):
+            for _ in range(2):
                 if curr_db[country]:
-                    delivered_numbers.append(str(curr_db[country].pop(0)))
+                    raw_num = str(curr_db[country].pop(0))
+                    delivered_numbers.append(raw_num)
+                    users[uid]["active_numbers"].append({"number": raw_num, "country": country})
             
             save_data(DB_FILE, curr_db)
+            save_data(USER_FILE, users)
             
-            # নাম্বারগুলোকে সাজিয়ে টেক্সট তৈরি
             num_text = "\n".join([f"`{n}`" for n in delivered_numbers])
             
             markup = types.InlineKeyboardMarkup(row_width=1)
@@ -195,25 +270,20 @@ def handle_query(call):
             )
             msg_text = f"🌍 **Country:** {country}\n━━━━━━━━━━━━━━\n{num_text}\n━━━━━━━━━━━━━━\n💡 **Tap to copy!**"
             bot.edit_message_text(msg_text, chat_id, message_id, reply_markup=markup, parse_mode="Markdown")
-            # ------------------------------------------------
         else: bot.answer_callback_query(call.id, "❌ স্টক শেষ!", show_alert=True)
 
     elif call.data == "back_c":
         send_country_list(chat_id, message_id)
 
-    # --- ADMIN CALLBACKS (UPDATED) ---
     elif call.data == "conf_clear":
         curr_db = load_data(DB_FILE, {})
         active_countries = {k: v for k, v in curr_db.items() if v and len(v) > 0}
-        
         if not active_countries:
             bot.answer_callback_query(call.id, "❌ No stock to clear!", show_alert=True)
             return
-
         markup = types.InlineKeyboardMarkup(row_width=1)
         for country in sorted(active_countries.keys()):
             markup.add(types.InlineKeyboardButton(f"🗑️ Clear {country}", callback_data=f"rmv_{country}"))
-        
         markup.add(types.InlineKeyboardButton("⬅️ Back", callback_data="back_settings"))
         bot.edit_message_text("🗑️ **Select country to clear stock:**", chat_id, message_id, reply_markup=markup)
 
@@ -280,4 +350,4 @@ def do_broadcast(message):
 
 if __name__ == "__main__":
     bot.infinity_polling()
-
+    
