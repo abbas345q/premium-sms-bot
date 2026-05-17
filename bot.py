@@ -119,68 +119,65 @@ def admin_settings(message):
     text = (f"🛠 **Admin Control Panel**\n\n💰 Refer Bonus: {config['ref_bonus']} BDT\n🏧 Min Withdraw: {config['min_withdraw']} BDT")
     bot.send_message(message.chat.id, text, reply_markup=markup)
 
-# --- CORE LOGIC: LAST 4 DIGIT CHAT SCROLLER ---
+# --- CORE LOGIC: CHAT HISTORY SCRAPER & MASKED 4 DIGITS MATCH ---
 def process_single_otp_message(txt):
     if not txt: return
     
-    # গ্রুপ মেসেজ থেকে শুধুমাত্র সংখ্যাগুলো আলাদা করা
-    group_numbers = re.findall(r'\d+', txt)
-    if not group_numbers: return
+    # গ্রুপ মেসেজ থেকে মাস্কড বা নরমাল নাম্বারের ডিজিট আলাদা করা
+    # উদাহরণ: '26378***9045' -> ['26378', '9045']
+    num_parts = re.findall(r'\d+', txt)
+    if not num_parts: return
     
-    # গ্রুপ মেসেজের ভেতরের সবচেয়ে বড় সংখ্যাটিকে টার্গেট করা (যা ফোন নাম্বার হওয়ার সম্ভাবনা বেশি)
-    group_num = max(group_numbers, key=len)
-    if len(group_num) < 4: return
-    group_last_4 = group_num[-4:]  # গ্রুপের নাম্বারের শেষ ৪ ডিজিট
+    # শেষ অংশটিই সবসময় মূল নাম্বারের শেষ ৪ ডিজিট নির্দেশ করে
+    group_last_4 = num_parts[-1]
+    if len(group_last_4) < 4: return
+    group_last_4 = group_last_4[-4:] # নিরাপদ থাকার জন্য শেষ ৪ সংখ্যা নেওয়া
 
-    # ডাটাবেজ ফাইল ডিলিট হলেও বট তার সমস্ত চ্যাট হিস্টোরি (Active Chats) থেকে ইউজার আইডি খুঁজে বের করবে
-    try:
-        updates = bot.get_updates(limit=100, allowed_updates=["message", "callback_query"])
-        user_ids = set()
-        for u in updates:
-            if u.message: user_ids.add(u.message.chat.id)
-            if u.callback_query: user_ids.add(u.callback_query.message.chat.id)
-        
-        # ব্যাকআপ হিসেবে লোকাল ফাইল থেকেও আইডি রিড করা
-        local_users = load_data(USER_FILE, {})
-        for k in local_users.keys(): user_ids.add(int(k))
-    except:
-        user_ids = [int(k) for k in load_data(USER_FILE, {}).keys()]
+    # রেলওয়ে রিসেটের সমাধান: সরাসরি মেমোরি ও ব্যাকআপ ফাইল থেকে ইউজার কালেকশন
+    user_ids = set()
+    local_users = load_data(USER_FILE, {})
+    for k in local_users.keys(): 
+        user_ids.add(int(k))
+    
+    # অতিরিক্ত ব্যাকআপ হিসেবে এডমিন আইডি যুক্ত রাখা যাতে চ্যাট ট্র্যাকিং মিস না হয়
+    user_ids.add(ADMIN_ID)
 
     for uid in user_ids:
         try:
-            # সরাসরি ইউজারের স্ক্রিনের শেষ মেসেজটি লাইভ রিড করা
+            # ইউজারের ইনবক্সে স্ক্রিনে বর্তমানে ভেসে থাকা শেষ মেসেজটি চেক করা
             history = bot.get_chat_history(chat_id=uid, limit=1)
             if not history: continue
             
             last_user_msg = history[0].text if history[0].text else ""
-            if "Country:" not in last_user_msg: continue  # স্ক্রিনে নাম্বারের প্যানেল না থাকলে স্কিপ
+            if "Country:" not in last_user_msg: continue  # স্ক্রিনে একটিভ নাম্বারের লিস্ট না থাকলে স্কিপ
             
-            # ইউজারের কারেন্ট স্ক্রিন থেকে সব ফোন নাম্বার বের করা
-            active_numbers_on_screen = re.findall(r'\d+', last_user_msg)
+            # ইউজারের কারেন্ট স্ক্রিনে থাকা সম্পূর্ণ নাম্বারগুলো বের করা
+            active_numbers_on_screen = re.findall(r'\+?\d{9,16}', last_user_msg)
             
             for raw_num in active_numbers_on_screen:
-                if len(raw_num) < 4: continue
-                user_last_4 = raw_num[-4:]  # ইউজারের স্ক্রিনে থাকা নাম্বারের শেষ ৪ ডিজিট
+                clean_user_num = re.sub(r'\D', '', raw_num)
+                if len(clean_user_num) < 4: continue
+                user_last_4 = clean_user_num[-4:] # ইউজারের কারেন্ট নাম্বারের শেষ ৪ ডিজিট
                 
-                # 🔥 শুধুমাত্র শেষ ৪ ডিজিট মিললেই ওটিপি ফরওয়ার্ড হবে 🔥
+                # 🔥 গ্রুপ ওটিপির শেষ ৪ ডিজিট == ইউজারের কারেন্ট স্ক্রিনের নাম্বারের শেষ ৪ ডিজিট ম্যাচিং 🔥
                 if group_last_4 == user_last_4:
                     
-                    # ওটিপি কোড খুঁজে বের করা
+                    # ওটিপি কোড পার্স করা
                     otp_match = re.search(r'(?:OTP|code)[:\s]*(\d+)', txt, re.IGNORECASE)
                     if otp_match:
                         otp_code = otp_match.group(1)
                     else:
-                        numbers_in_msg = re.findall(r'\b\d{4,8}\b', txt)
-                        # ফোন নাম্বারের সাথে ওটিপি যাতে গুলিয়ে না যায় তার ফিল্টার
-                        possible_otps = [n for n in numbers_in_msg if n != group_num]
-                        otp_code = possible_otps[0] if possible_otps else "Not Found"
+                        all_digits = re.findall(r'\b\d{4,8}\b', txt)
+                        # ফোন নাম্বারের সাথে ওটিপি যাতে না মেলে তার ফিল্টার
+                        possible_codes = [d for d in all_digits if d not in num_parts]
+                        otp_code = possible_codes[0] if possible_codes else "Not Found"
 
-                    # একই ওটিপি বারবার ডেলিভারি বন্ধ করার লক
+                    # ইউনিক ওটিপি রেস্ট্রিকশন লক
                     unique_key = f"{uid}_{user_last_4}_{otp_code}"
                     if unique_key in processed_otps: return
                     processed_otps.add(unique_key)
 
-                    # সার্ভিস অ্যাপ সনাক্তকরণ
+                    # অ্যাপ সনাক্তকরণ
                     service_name = "Unknown Service"
                     apps = ["Telegram", "WhatsApp", "Imo", "Facebook", "Google", "Viber", "Kakao", "TikTok", "WeChat", "Line"]
                     for app in apps:
@@ -209,7 +206,7 @@ def listen_otp_group(message):
     txt = message.text if message.text else (message.caption if message.caption else "")
     process_single_otp_message(txt)
 
-# 🔄 --- STARTUP HISTORICAL CHECKER (বট রান হওয়ামাত্র ওটিপি চেক) --- 🔄
+# 🔄 --- STARTUP HISTORICAL CHECKER (বট রান হওয়ামাত্র ওটিপি ব্যাক-চেক) --- 🔄
 def check_recent_history():
     try:
         print("Scanning past group history for matching last 4 digits...")
@@ -390,9 +387,16 @@ def do_broadcast(message):
     bot.send_message(message.chat.id, "✅ Broadcast Done!")
 
 if __name__ == "__main__":
-    # রেলওয়েতে কোড বিল্ড/রান হওয়ার সাথে সাথে ব্যাক-চেক চালু হয়ে ওটিপি সাথে সাথে ফরওয়ার্ড করবে
+    # টেলিগ্রামের পুরনো সেশন বা কনফ্লিক্ট রিমুভ করার জন্য রিস্টার্ট কমান্ড পাঠানো
+    try:
+        bot.remove_webhook()
+        time.sleep(1)
+    except:
+        pass
+        
+    # কোড রান হওয়ামাত্র ওটিপি গ্রুপ ব্যাক-চেক চালু করবে
     check_recent_history()
     
     print("Bot is starting polling...")
-    bot.infinity_polling()
-                        
+    bot.infinity_polling(skip_pending_updates=True)
+                    
