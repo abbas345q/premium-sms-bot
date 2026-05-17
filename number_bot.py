@@ -17,7 +17,7 @@ CONFIG_FILE = 'settings.json'
 OTP_GROUP_LINK = "https://t.me/Premium_OTP_chat"
 OTP_GROUP_ID = -1002295608331
 
-# সেশন ডুপ্লিকেশন এড়াতে থ্রেড মোড ফলস রাখা হলো
+# সেশন ডুপ্লিকেশন ও কনফ্লিক্ট এড়াতে থ্রেড মোড ফলস রাখা হলো
 bot = telebot.TeleBot(API_TOKEN, threaded=False)
 
 def load_data(file, default):
@@ -180,25 +180,33 @@ def admin_settings(message):
 def handle_all(message):
     if message.chat.id == OTP_GROUP_ID: return
     uid = str(message.from_user.id)
+    
+    # ইউজার জয়েন ভেরিফিকেশন চেক
     if not is_user_joined_all(message.from_user.id): return
     
     if message.text == "📞 Get Number":
         send_country_list(message.chat.id)
+        return
     elif message.text == "💰 Balance":
         users = load_data(USER_FILE, {})
         u_data = users.get(uid, {"balance": 0.0})
         bot.send_message(message.chat.id, f"💳 **Current Balance:** {u_data['balance']} BDT")
+        return
     elif message.text == "🎁 Refer & Earn":
         bot_user = (bot.get_me()).username
         bot.send_message(message.chat.id, f"🎁 **Refer Link:** https://t.me/{bot_user}?start={uid}")
+        return
     elif message.text == "💸 Withdraw":
         bot.send_message(message.chat.id, f"❌ **Min Withdraw:** {config['min_withdraw']} BDT")
+        return
     elif message.text == "🌍 Available Countries":
         current_db = load_data(DB_FILE, {})
         active = [f"✅ {k} ({len(v)})" for k, v in current_db.items() if v and len(v) > 0]
         bot.send_message(message.chat.id, "🌍 Stock List:\n\n" + "\n".join(active) if active else "❌ Empty")
+        return
     
-    elif int(message.from_user.id) == ADMIN_ID:
+    # এডমিন সেকশন (নাম্বার অ্যাড মেকানিজম)
+    if int(message.from_user.id) == ADMIN_ID:
         txt = message.text if message.text else ""
         if message.content_type == 'document':
             f_info = bot.get_file(message.document.file_id)
@@ -208,7 +216,7 @@ def handle_all(message):
         if found:
             curr_db = load_data(DB_FILE, {})
             added = 0
-            detected_countries = set()  # কোন কোন দেশ যুক্ত হলো তা নির্ভুলভাবে ট্র্যাক করার জন্য
+            detected_countries = set()
             
             for r in found:
                 clean_r = "+" + r.lstrip('+')
@@ -221,14 +229,13 @@ def handle_all(message):
                     curr_db[c_name].append(clean_r)
                     added += 1
                     detected_countries.add(c_name)
-                    
+            
             save_data(DB_FILE, curr_db)
             bot.reply_to(message, f"✅ Added {added} numbers to stock.")
             
-            # --- ৩-৪ লাইনের আল্ট্রা-শর্ট অটোমেটিক ব্রডকাস্ট সিস্টেম (টেলিগ্রাম রেট লিমিট ও ক্র্যাশ প্রুফ) ---
+            # --- ৩-৪ লাইনের প্রিমিয়াম ক্র্যাশ-প্রুফ অটোমেটিক ব্রডকাস্ট সিস্টেম ---
             if added > 0:
                 country_details = ", ".join(detected_countries)
-                
                 premium_alert = (
                     f"🔥 <b>FRESH STOCK ADDED! (High Traffic)</b> 🚀\n"
                     f"📢 প্যানেলে নতুন ফ্রেশ <b>{added}টি</b> নাম্বার যুক্ত করা হয়েছে।\n"
@@ -236,16 +243,14 @@ def handle_all(message):
                     f"⚡ সুপার-ফাস্ট ওটিপি পেতে এখনই নিচের বাটনে ক্লিক করে নাম্বার নিন!"
                 )
                 
-                # ইনলাইন বাটন
                 markup = types.InlineKeyboardMarkup()
                 markup.add(types.InlineKeyboardButton("📞 GET NUMBER NOW", callback_data="back_c"))
                 
-                # ক্র্যাশ এড়াতে টাইম ডিলে দিয়ে নোটিফিকেশন ব্রডকাস্ট লুপ
                 all_users = load_data(USER_FILE, {})
                 for user_id in all_users.keys():
                     try:
                         bot.send_message(int(user_id), premium_alert, parse_mode="HTML", reply_markup=markup)
-                        time.sleep(0.05)  # প্রতি মেসেজের মাঝে ০.০৫ সেকেন্ড বিরতি (কানেকশন ড্রপ ও এরর এড়াতে)
+                        time.sleep(0.04)  # রেট লিমিট ও সেশন কনফ্লিক্ট ব্লক করার সেইফগার্ড ডিলে
                     except:
                         pass
 
@@ -271,7 +276,7 @@ def handle_query(call):
             
             users[uid]["active_numbers"] = []
             delivered_numbers = []
-            take_count = min(2, len(curr_db[country]))
+            take_count = min(3, len(curr_db[country]))
             for _ in range(take_count):
                 if curr_db[country]:
                     raw_num = str(curr_db[country].pop(0))
@@ -396,7 +401,7 @@ def do_broadcast(message):
     for u in load_data(USER_FILE, {}).keys():
         try: 
             bot.send_message(int(u), message.text)
-            time.sleep(0.05)
+            time.sleep(0.04)
         except: pass
     bot.send_message(message.chat.id, "✅ Broadcast Done!")
 
@@ -405,7 +410,7 @@ def main():
     try: bot.remove_webhook()
     except: pass
     
-    print("Shop Bot is successfully running online...")
+    print("Premium OTP Panel successfully running online...")
     bot.infinity_polling(none_stop=True)
 
 if __name__ == "__main__":
