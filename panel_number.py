@@ -12,6 +12,7 @@ API_BASE_URL = 'http://147.135.212.197/crapi/st/viewstats'
 
 BOT_TOKEN = '7634786660:AAHvY09ndmYnO6pLpz_84rSLqGUEMlfwNd4'
 OTP_GROUP_ID = -1002295608331
+USER_FILE = 'users_data.json'
 SENT_FILE = 'db_number_panel.json'
 
 COUNTRY_MAP = {"263": "🇿🇼 ZW", "964": "🇮🇶 IQ", "880": "🇧🇩 BD", "91": "🇮🇳 IN", "1": "🇺🇸 US", "234": "🇳🇬 NG"}
@@ -35,6 +36,7 @@ def safe_load_json(file_path, default_value):
     return default_value
 
 def send_to_telegram_group_premium(service, number, otp, full_msg):
+    """ওটিপি গ্রুপে সুন্দর করে মাত্র ১ বার পোস্ট করার ফাংশন"""
     flag = get_flag(number)
     srv_name = service.lower()
     header = next((v for k, v in SERVICE_ICONS.items() if k in srv_name), f"🔔 {service.upper()}")
@@ -63,8 +65,49 @@ def send_to_telegram_group_premium(service, number, otp, full_msg):
     }
     try:
         requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json=payload, timeout=15)
-    except Exception as e:
-        print(f"⚠️ [Railway Log] গ্রুপে ওটিপি ফরওয়ার্ড করতে ব্যর্থ: {e}")
+    except: pass
+
+def send_direct_to_user_inbox(service, number, otp):
+    """সরাসরি ডাটাবেজ ফাইল চেক করে ইউজারের ইনবক্সে ওটিপি পুশ করার ফাংশন"""
+    current_users = safe_load_json(USER_FILE, {})
+    if not current_users: return
+
+    clean_num = re.sub(r'\D', '', str(number))
+    if len(clean_num) < 5: return
+    
+    # নম্বরের শেষ ৫টি ডিজিট দিয়ে ইউজারের একটিভ লিস্ট চেক করা হচ্ছে
+    target_part = clean_num[-5:]
+    
+    for uid, u_info in current_users.items():
+        if not isinstance(u_info, dict): continue
+        active_numbers = u_info.get("active_numbers", [])
+        
+        for num_obj in active_numbers:
+            user_clean_num = re.sub(r'\D', '', num_obj.get("number", ""))
+            if target_part in user_clean_num:
+                
+                # সার্ভিস আইকন ডিটেকশন
+                srv_clean = service.upper()
+                for k, v in SERVICE_ICONS.items():
+                    if k in service.lower():
+                        srv_clean = v
+                        break
+                        
+                final_msg = (
+                    f"✨ **NEW OTP RECEIVED!**\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"📱 **Service:** {srv_clean}\n"
+                    f"🔢 **Number:** `{num_obj['number']}`\n"
+                    f"🔑 **OTP Code:** `{otp}`\n"
+                    f"━━━━━━━━━━━━━━━━━━"
+                )
+                url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+                payload = {"chat_id": int(uid), "text": final_msg, "parse_mode": "Markdown"}
+                try: 
+                    requests.post(url, json=payload, timeout=10)
+                except: 
+                    pass
+                return
 
 def main():
     print("--------------------------------------------------")
@@ -102,8 +145,11 @@ def main():
                                 
                                 print(f"🔥 [Railway Log] New OTP Detected! Service: {srv} | Number: {num}")
                                 
-                                # গ্রুপে শুধুমাত্র একবার পাঠানো হবে
+                                # ১. গ্রুপে ১ বার পাঠানো হচ্ছে
                                 send_to_telegram_group_premium(srv, num, otp, msg)
+                                
+                                # ২. সরাসরি ইউজারের ইনবক্সে ১ বার পাঠানো হচ্ছে (গ্রুপের মেসেজের ওপর নির্ভর না করে)
+                                send_direct_to_user_inbox(srv, num, otp)
                                 
                                 sent_set.add(uid_key)
                                 new_found = True
@@ -114,10 +160,10 @@ def main():
                                 json.dump(list(sent_set), f, indent=4)
                         except: pass
             
-            time.sleep(3) 
+            time.sleep(4) 
         except Exception as e:
             time.sleep(6)
 
 if __name__ == "__main__":
     main()
-        
+                            
