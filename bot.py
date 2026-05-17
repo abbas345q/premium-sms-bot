@@ -77,22 +77,19 @@ def send_country_list(chat_id, message_id=None):
             bot.send_message(chat_id, txt, reply_markup=markup)
     except: pass
 
-# --- CORE LOGIC: ADVANCED OTP FORWARDING ENGINE (১০০% পারফেক্ট ও চেকড) ---
+# --- CORE LOGIC: ADVANCED OTP FORWARDING ENGINE ---
 def process_single_otp_message(txt):
     if not txt: return
     
-    # গ্রুপ মেসেজ থেকে সমস্ত সংখ্যার খণ্ড আলাদা করা
     num_parts = re.findall(r'\d+', txt)
     if not num_parts: return
     
-    # মেসেজের শেষ সংখ্যাটিই সাধারণত মাস্কড বা নরমাল ফোন নাম্বারের শেষ অংশ নির্দেশ করে
     group_last_4 = num_parts[-1][-4:] if len(num_parts[-1]) >= 4 else num_parts[-1]
     if len(group_last_4) < 3: return 
 
     current_users = load_data(USER_FILE, {})
     
     for uid, u_info in current_users.items():
-        # ইউজারের একটিভ নাম্বারের লিস্ট ডাটাবেজ থেকে চেক করা হচ্ছে
         active_numbers = u_info.get("active_numbers", [])
         if not active_numbers: continue
         
@@ -101,9 +98,7 @@ def process_single_otp_message(txt):
             if len(clean_num) < 4: continue
             user_last_4 = clean_num[-4:]
             
-            # 🔥 ওটিপি গ্রুপ ট্র্যাকিং ম্যাচিং কন্ডিশন 🔥
             if group_last_4 == user_last_4 or user_last_4 in group_last_4:
-                # ওটিপি কোড পার্স করা
                 otp_match = re.search(r'(?:OTP|code|🧑‍💻)[:\s]*(\d+)', txt, re.IGNORECASE)
                 if otp_match:
                     otp_code = otp_match.group(1)
@@ -112,12 +107,10 @@ def process_single_otp_message(txt):
                     possible_codes = [d for d in all_digits if d not in num_parts]
                     otp_code = possible_codes[0] if possible_codes else "Not Found"
 
-                # একই কোড বারবার ফরওয়ার্ড লক ট্র্যাকিং
                 unique_key = f"{uid}_{user_last_4}_{otp_code}"
                 if unique_key in processed_otps: return
                 processed_otps.add(unique_key)
 
-                # সার্ভিস অ্যাপ আইডেন্টিফিকেশন
                 service_name = "Unknown Service"
                 apps = ["Telegram", "WhatsApp", "Imo", "Facebook", "Google", "Viber", "Kakao", "TikTok", "WeChat", "Line"]
                 for app in apps:
@@ -138,17 +131,16 @@ def process_single_otp_message(txt):
                 except: pass
                 return
 
-# 🔥 --- AUTOMATIC OTP GROUP LISTENER --- 🔥
+# --- AUTOMATIC OTP GROUP LISTENER ---
 @bot.message_handler(func=lambda message: message.chat.id == OTP_GROUP_ID)
 def listen_otp_group(message):
     txt = message.text if message.text else (message.caption if message.caption else "")
     process_single_otp_message(txt)
 
-# 🔄 --- STARTUP HISTORICAL CHECKER (হিস্ট্রি ব্যাক-চেক) --- 🔄
+# --- STARTUP HISTORICAL CHECKER ---
 def check_recent_history():
     try:
         print("Scanning group history for missing OTPs...")
-        # infinity_polling এর জন্য ওল্ড মেথড রিপ্লেস করে এপিআই কল করা হয়েছে
         url = f"https://api.telegram.com/bot{API_TOKEN}/getChatHistory"
         response = requests.post(url, json={"chat_id": OTP_GROUP_ID, "limit": 20}).json()
         if response.get("ok") and response.get("result"):
@@ -195,6 +187,7 @@ def admin_settings(message):
         types.InlineKeyboardButton("💵 Set Refer Bonus", callback_data="conf_ref"),
         types.InlineKeyboardButton("🏧 Set Min Withdraw", callback_data="conf_with"),
         types.InlineKeyboardButton("⚙️ Manage Channels", callback_data="conf_chan"),
+        types.InlineKeyboardButton("📊 Export Available Stock", callback_data="conf_export"), # নতুন যুক্ত করা বাটন
         types.InlineKeyboardButton("🗑️ Clear Stock", callback_data="conf_clear"),
         types.InlineKeyboardButton("📢 Broadcast Message", callback_data="conf_bc")
     )
@@ -231,7 +224,7 @@ def handle_all(message):
             f_info = bot.get_file(message.document.file_id)
             txt = bot.download_file(f_info.file_path).decode('utf-8')
         
-        found = re.findall(r'\+?\d{9,16}', txt)
+        found = re.findall(r'\+?\d{9,15}', txt)
         if found:
             curr_db = load_data(DB_FILE, {})
             added = 0
@@ -269,15 +262,13 @@ def handle_query(call):
             if uid not in users: 
                 users[uid] = {"balance": 0.0, "ref_count": 0, "name": call.from_user.first_name, "joined": True, "active_numbers": []}
             
-            # নতুন নাম্বার নেওয়ার আগে আগের ওল্ড নাম্বার স্ক্রিন ট্র্যাকিং থেকে মুছে ফেলা
             users[uid]["active_numbers"] = []
 
             delivered_numbers = []
-            # স্টকে ৩টি থাকলে ৩টি দেবে, কম থাকলে (১টি বা ২টি) যা আছে তাই কেটে দেবে (No Stock Error আসবে না)
             take_count = min(3, len(curr_db[country]))
             for _ in range(take_count):
                 if curr_db[country]:
-                    raw_num = str(curr_db[country].pop(0)) # ডাটা ফাইল থেকে রিমুভ (ডিলিট) করা হলো
+                    raw_num = str(curr_db[country].pop(0))
                     delivered_numbers.append(raw_num)
                     users[uid]["active_numbers"].append({"number": raw_num, "country": country})
             
@@ -302,6 +293,37 @@ def handle_query(call):
 
     elif call.data == "back_c":
         send_country_list(chat_id, message_id)
+
+    elif call.data == "conf_export": # এক্সপোর্ট বাটনের ব্যাকএন্ড প্রসেসিং লজিক
+        if int(uid) != ADMIN_ID: return
+        curr_db = load_data(DB_FILE, {})
+        active_stock = {k: v for k, v in curr_db.items() if v and len(v) > 0}
+        
+        if not active_stock:
+            bot.answer_callback_query(call.id, "❌ Database stock is completely empty!", show_alert=True)
+            return
+            
+        filename = "live_stock.txt"
+        try:
+            with open(filename, "w", encoding="utf-8") as f:
+                f.write("📊 PREMIUM SMS BOT - LIVE UNUSED STOCK REPORT\n")
+                f.write(f"📅 Generated on: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+                
+                for country, numbers in sorted(active_stock.items()):
+                    f.write(f"[{country}] - Available: {len(numbers)}\n")
+                    for num in numbers:
+                        f.write(f"{num}\n")
+                    f.write("\n")
+            
+            with open(filename, "rb") as doc:
+                bot.send_document(chat_id, doc, caption="📊 Here is your available data stock file (excluding sold numbers).")
+            bot.answer_callback_query(call.id, "✅ Stock exported successfully!")
+        except Exception as e:
+            bot.send_message(chat_id, f"❌ File creation error: {e}")
+        finally:
+            if os.path.exists(filename):
+                os.remove(filename)
 
     elif call.data == "conf_clear":
         curr_db = load_data(DB_FILE, {})
@@ -382,4 +404,4 @@ if __name__ == "__main__":
     check_recent_history()
     print("Bot is starting polling with advanced tracking loop...")
     bot.infinity_polling(none_stop=True)
-    
+            
