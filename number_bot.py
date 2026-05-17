@@ -6,7 +6,6 @@ import os
 import time
 import phonenumbers
 from phonenumbers import geocoder
-import threading
 
 # --- CONFIGURATION ---
 API_TOKEN = '7634786660:AAHvY09ndmYnO6pLpz_84rSLqGUEMlfwNd4'
@@ -94,7 +93,7 @@ def handle_start(message):
     welcome_msg = (
         f"👋 **Hello, {name}!**\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"✨ **Welcome to PREMIUM SMS PENEL**\n"
+        f"✨ **Welcome to PREMIUM SMS PANEL**\n"
         f"🚀 *Fastest OTP Service in the Market.*\n"
         f"🌍 *100+ Countries Available Now.*\n"
         f"━━━━━━━━━━━━━━━━━━"
@@ -182,7 +181,7 @@ def handle_query(call):
             
             users[uid]["active_numbers"] = []
             delivered_numbers = []
-            take_count = min(3, len(curr_db[country]))
+            take_count = min(2, len(curr_db[country]))
             for _ in range(take_count):
                 if curr_db[country]:
                     raw_num = str(curr_db[country].pop(0))
@@ -311,25 +310,13 @@ def do_broadcast(message):
         except: pass
     bot.send_message(message.chat.id, "✅ Broadcast Done!")
 
-def run_panel_file():
-    print("[Thread Manager] panel_number.py ব্যাকগ্রাউন্ডে সফলভাবে चालू হয়েছে...")
-    try:
-        if os.path.exists("panel_number.py"):
-            exec(open("panel_number.py", encoding="utf-8").read(), globals())
-    except Exception as e:
-        print(f"❌ প্যানেল ফাইল ব্যাকগ্রাউন্ডে রান করতে ত্রুটি: {e}")
-
 def main():
-    print("Clearing webhooks and initial conflicts...")
+    print("Clearing webhooks and starting bot...")
     try: bot.remove_webhook()
     except: pass
-    
-    panel_thread = threading.Thread(target=run_panel_file, daemon=True)
-    panel_thread.start()
-    
     print("Shop Bot is successfully running online via Master...")
     bot.infinity_polling(none_stop=True, timeout=60, long_polling_timeout=30)
 
 if __name__ == "__main__":
     main()
-        
+            
