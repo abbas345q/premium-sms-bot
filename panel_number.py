@@ -12,10 +12,8 @@ API_BASE_URL = 'http://147.135.212.197/crapi/st/viewstats'
 
 BOT_TOKEN = '7634786660:AAHvY09ndmYnO6pLpz_84rSLqGUEMlfwNd4'
 OTP_GROUP_ID = -1002295608331
+USER_FILE = 'users_data.json'
 SENT_FILE = 'db_number_panel.json'
-
-# ডুপ্লিকেট কানেকশন এড়াতে রান-টাইমে সেফ ইমপোর্ট করা হলো
-from number_bot import process_single_otp_message
 
 COUNTRY_MAP = {"263": "🇿🇼 ZW", "964": "🇮🇶 IQ", "880": "🇧🇩 BD", "91": "🇮🇳 IN", "1": "🇺🇸 US", "234": "🇳🇬 NG"}
 SERVICE_ICONS = {"facebook": "🔵 Facebook", "whatsapp": "🟢 WhatsApp", "telegram": "✈️ Telegram"}
@@ -61,6 +59,37 @@ def send_to_telegram_group_premium(service, number, otp, full_msg):
     except Exception as e:
         print(f"⚠️ [Railway Log] গ্রুপে ওটিপি ফরওয়ার্ড করতে ব্যর্থ: {e}")
 
+def process_and_send_to_user_direct(srv, num, msg, otp):
+    """কোনো ফাইল ইমপোর্ট না করে সরাসরি ডাটাবেজ থেকে ম্যাচ করে ইউজারের ইনবক্সে পুশ করার স্বাধীন মেথড"""
+    if not os.path.exists(USER_FILE): return
+    try:
+        with open(USER_FILE, 'r', encoding='utf-8') as f:
+            current_users = json.load(f)
+    except: return
+
+    clean_txt = re.sub(r'[\s\-\+\(\):,]', '', f"{srv}{num}{msg}")
+    
+    for uid, u_info in current_users.items():
+        active_numbers = u_info.get("active_numbers", [])
+        for num_obj in active_numbers:
+            clean_num = re.sub(r'\D', '', num_obj["number"])
+            if len(clean_num) < 4: continue
+            
+            if clean_num[-4:] in clean_txt:
+                final_msg = (
+                    f"✨ *NEW OTP RECEIVED!*\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"📱 *Service:* {srv}\n"
+                    f"🔢 *Number:* `{num_obj['number']}`\n"
+                    f"🔑 *OTP Code:* `{otp}`\n"
+                    f"━━━━━━━━━━━━━━━━━━"
+                )
+                url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+                payload = {"chat_id": int(uid), "text": final_msg, "parse_mode": "Markdown"}
+                try: requests.post(url, json=payload, timeout=10)
+                except: pass
+                return
+
 def main():
     print("--------------------------------------------------")
     print(f"🟢 [Railway Log] {PANEL_NAME} সফলভাবে চালু হয়েছে!")
@@ -96,15 +125,13 @@ def main():
                                 otp_match = re.search(r'\b(\d{4,8})\b', msg)
                                 otp = otp_match.group() if otp_match else "N/A"
                                 
-                                # রেলওয়ে কনসোলে লাইভ ওটিপি ট্র্যাকিং প্রিন্ট
                                 print(f"🔥 [Railway Log] New OTP Detected! Service: {srv} | Number: {num}")
                                 
-                                # ১. মেইন ওটিপি গ্রুপে পুশ হবে
+                                # ১. গ্রুপে প্রিমিয়াম স্টাইলে ফরওয়ার্ড হবে
                                 send_to_telegram_group_premium(srv, num, otp, msg)
                                 
-                                # ২. ইউজারের ব্যক্তিগত ইনবক্সে পুশ হবে
-                                full_text = f"Service: {srv}\nNumber: {num}\nMsg: {msg}"
-                                process_single_otp_message(full_text)
+                                # ২. ইউজারের ব্যক্তিগত ইনবক্সে পুশ হবে (স্বাধীন ফাংশন)
+                                process_and_send_to_user_direct(srv, num, msg, otp)
                                 
                                 sent_set.add(uid_key)
                                 new_found = True
@@ -124,4 +151,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
