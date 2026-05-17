@@ -4,7 +4,7 @@ import re
 import json
 import os
 import time
-import requests  # 🔥 এই অত্যন্ত গুরুত্বপূর্ণ ইম্পোর্টটি যুক্ত করা হয়েছে যাতে বট আর ক্র্যাশ না করে
+import requests
 import phonenumbers
 from phonenumbers import geocoder
 
@@ -78,16 +78,13 @@ def send_country_list(chat_id, message_id=None):
             bot.send_message(chat_id, txt, reply_markup=markup)
     except: pass
 
-# --- CORE LOGIC: ADVANCED OTP FORWARDING ENGINE ---
+# --- 🔥 CORE LOGIC: ADVANCED FULL-TEXT OTP ENGINE 🔥 ---
 def process_single_otp_message(txt):
     if not txt: return
     
-    num_parts = re.findall(r'\d+', txt)
-    if not num_parts: return
+    # সম্পূর্ণ মেসেজের টেক্সট থেকে স্পেস ও ড্যাশ মুছে ক্লিন সংখ্যা বের করা (যাতে ম্যাচিং মিস না হয়)
+    clean_txt = re.sub(r'[\s\-\+\(\):,]', '', txt)
     
-    group_last_4 = num_parts[-1][-4:] if len(num_parts[-1]) >= 4 else num_parts[-1]
-    if len(group_last_4) < 3: return 
-
     current_users = load_data(USER_FILE, {})
     
     for uid, u_info in current_users.items():
@@ -95,23 +92,32 @@ def process_single_otp_message(txt):
         if not active_numbers: continue
         
         for num_obj in active_numbers:
+            # ইউজারের কেনা নাম্বারটি ক্লিন করা
             clean_num = re.sub(r'\D', '', num_obj["number"])
             if len(clean_num) < 4: continue
-            user_last_4 = clean_num[-4:]
             
-            if group_last_4 == user_last_4 or user_last_4 in group_last_4:
-                otp_match = re.search(r'(?:OTP|code|🔑|🧑‍💻)[:\s]*(\d+)', txt, re.IGNORECASE)
+            user_last_4 = clean_num[-4:] # নাম্বারের শেষ ৪ ডিজিট
+            
+            # 🎯 কন্ডিশন: ক্লিন করা মেসেজের যেকোনো জায়গায় যদি ইউজারের শেষ ৪ ডিজিট থাকে
+            if user_last_4 in clean_txt:
+                
+                # ১. প্রথমে নির্দিষ্ট কিওয়ার্ড দিয়ে ওটিপি খোঁজার চেষ্টা
+                otp_match = re.search(r'(?:OTP|code|🔑|🧑‍💻|verification)[:\s]*(\d+)', txt, re.IGNORECASE)
                 if otp_match:
                     otp_code = otp_match.group(1)
                 else:
+                    # ২. কিওয়ার্ড না মিললে মেসেজ থেকে ৪ থেকে ৮ ডিজিটের অন্যান্য সংখ্যাগুলো আলাদা করা
                     all_digits = re.findall(r'\b\d{4,8}\b', txt)
-                    possible_codes = [d for d in all_digits if d not in num_parts]
+                    # ফোন নাম্বারের অংশ বাদ দিয়ে যা থাকবে তাই ওটিপি কোড
+                    possible_codes = [d for d in all_digits if d not in clean_num]
                     otp_code = possible_codes[0] if possible_codes else "Not Found"
 
+                # ডুপ্লিকেট লক প্রোটেকশন
                 unique_key = f"{uid}_{user_last_4}_{otp_code}"
                 if unique_key in processed_otps: return
                 processed_otps.add(unique_key)
 
+                # অটোমেটিক সার্ভিস ডিটেকশন
                 service_name = "Unknown Service"
                 apps = ["Telegram", "WhatsApp", "Imo", "Facebook", "Google", "Viber", "Kakao", "TikTok", "WeChat", "Line", "Snapchat"]
                 for app in apps:
@@ -143,7 +149,7 @@ def listen_edited_otp_group(message):
     txt = message.text if message.text else (message.caption if message.caption else "")
     process_single_otp_message(txt)
 
-# --- STARTUP HISTORICAL CHECKER (হিস্ট্রি ব্যাক-চেক ফাংশন) ---
+# --- STARTUP HISTORICAL CHECKER ---
 def check_recent_history():
     try:
         print("Scanning group history for missing OTPs...")
@@ -411,7 +417,6 @@ if __name__ == "__main__":
     try: bot.remove_webhook()
     except: pass
     
-    # ক্র্যাশ রোধে স্টার্টআপ চেকটি রান করার আগে সেফ চেক করা হচ্ছে
     check_recent_history()
     
     print("Bot is successfully running online...")
