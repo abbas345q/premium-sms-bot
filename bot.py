@@ -129,32 +129,44 @@ def admin_settings(message):
     text = (f"🛠 **Admin Control Panel**\n\n💰 Refer Bonus: {config['ref_bonus']} BDT\n🏧 Min Withdraw: {config['min_withdraw']} BDT")
     bot.send_message(message.chat.id, text, reply_markup=markup)
 
-# --- CORE OTP PROCESSING LOGIC ---
+# --- CORE OTP PROCESSING LOGIC (ULTRA BUG-FIXED) ---
 def process_single_otp_message(txt):
     if not txt: return
     
+    # গ্রুপ মেসেজের টেক্সট থেকে প্লাস, স্পেস, হাইফেন সব রিমুভ করে ক্লিন করা
     clean_txt = re.sub(r'[\s\-\+\(\)]', '', txt)
     current_users = load_data(USER_FILE, {})
     
     for uid, u_data in current_users.items():
         active_list = u_data.get("active_numbers", [])
         for item in active_list:
-            saved_num = item["number"].replace("+", "").strip()
-            start_part = saved_num[:3]
+            # ডাটাবেজের নাম্বার থেকে প্লাস রিমুভ করে পিওর ডিজিট নেওয়া (যেমন: 263785548154)
+            saved_num = re.sub(r'\D', '', item["number"])
+            if not saved_num: continue
+            
+            # দেশের কোড সহ প্রথম ৫টি ডিজিট (যেমন: 26378) এবং শেষ ৪টি ডিজিট (যেমন: 8154) নেওয়া
+            start_part = saved_num[:5]
             end_part = saved_num[-4:]
             
+            # অত্যন্ত নিখুঁতভাবে চেক করা যে দুটো অংশই মেসেজে আছে কিনা
             if start_part in clean_txt and end_part in clean_txt:
                 unique_key = f"{uid}_{saved_num}_{txt.strip()}"
                 if unique_key in processed_otps: return
                 processed_otps.add(unique_key)
 
-                otp_match = re.search(r'\b\d{4,8}\b', txt)
-                if not otp_match:
-                    otp_lines = re.findall(r'(?:OTP|code)[:\s]*(\d+)', txt, re.IGNORECASE)
-                    otp_code = otp_lines[0] if otp_lines else "Not Found"
+                # ওটিপি কোড এক্সট্রাক্ট করা (গ্রুপের নির্দিষ্ট ফরম্যাট অনুযায়ী)
+                otp_code = "Not Found"
+                otp_match = re.search(r'(?:OTP|code)[:\s]*(\d+)', txt, re.IGNORECASE)
+                if otp_match:
+                    otp_code = otp_match.group(1)
                 else:
-                    otp_code = otp_match.group(0)
+                    # বিকল্প ব্যাকআপ ম্যাচিং পদ্ধতি
+                    numbers_in_msg = re.findall(r'\b\d{4,8}\b', txt)
+                    if numbers_in_msg:
+                        # মেসেজের ভেতরের ৪-৮ ডিজিটের প্রথম সংখ্যাটিকে ওটিপি ধরা হবে
+                        otp_code = numbers_in_msg[0]
 
+                # কোন অ্যাপের ওটিপি তা ডিটেক্ট করা
                 service_name = "Unknown Service"
                 apps = ["Telegram", "WhatsApp", "Imo", "Facebook", "Google", "Viber", "Kakao", "TikTok", "WeChat", "Line"]
                 for app in apps:
@@ -173,7 +185,8 @@ def process_single_otp_message(txt):
                 )
                 try:
                     bot.send_message(int(uid), final_msg, parse_mode="Markdown")
-                except: pass
+                except Exception as e:
+                    print(f"Failed to send message to user {uid}: {e}")
                 return
 
 # 🔥 --- AUTOMATIC OTP GROUP LISTENER --- 🔥
@@ -182,12 +195,11 @@ def listen_otp_group(message):
     txt = message.text if message.text else (message.caption if message.caption else "")
     process_single_otp_message(txt)
 
-# 🔄 --- STARTUP HISTORICAL MESSAGE CHECKER (নতুন ফিচার) --- 🔄
+# 🔄 --- STARTUP HISTORICAL MESSAGE CHECKER --- 🔄
 def check_recent_history():
     try:
-        # গ্রুপ থেকে শেষ ৩০টি মেসেজ হিস্টোরি তুলে আনা হবে
-        history = bot.get_chat_history(chat_id=OTP_GROUP_ID, limit=30)
-        # সবচেয়ে পুরোনো মেসেজ থেকে নতুন মেসেজের সিরিয়ালে প্রসেস করা হবে
+        # গ্রুপ থেকে শেষ ৫০টি মেসেজ নিয়ে চেক করবে যাতে একটু আগের কোডও মিস না হয়
+        history = bot.get_chat_history(chat_id=OTP_GROUP_ID, limit=50)
         for message in reversed(history):
             txt = message.text if message.text else (message.caption if message.caption else "")
             process_single_otp_message(txt)
@@ -363,10 +375,9 @@ def do_broadcast(message):
     bot.send_message(message.chat.id, "✅ Broadcast Done!")
 
 if __name__ == "__main__":
-    # বট পুরোপুরি চালু হওয়ার ঠিক আগে রিসেন্ট ওটিপি চেক করবে
-    print("Checking recent group history for missed OTPs...")
+    print("Checking past group history for missed OTPs...")
     check_recent_history()
     
     print("Bot is starting polling...")
     bot.infinity_polling()
-                    
+                                             
