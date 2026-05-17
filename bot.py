@@ -7,6 +7,7 @@ import time
 import requests
 import phonenumbers
 from phonenumbers import geocoder
+import threading  # 🔥 ব্যাকগ্রাউন্ডে ওটিপি চেক করার জন্য থ্রেডিং যুক্ত করা হয়েছে
 
 # --- CONFIGURATION ---
 API_TOKEN = '7634786660:AAHvY09ndmYnO6pLpz_84rSLqGUEMlfwNd4'
@@ -135,31 +136,31 @@ def process_single_otp_message(txt):
                 except: pass
                 return
 
-# --- AUTOMATIC OTP GROUP LISTENER (BOT-TO-BOT ALLOWED) ---
-# 🔥 এখানে func ফিল্টারের পাশাপাশি অন্যান্য বটের মেসেজ ক্যাচ করার পারমিশন দেওয়া হয়েছে
+# --- AUTOMATIC OTP GROUP LISTENER ---
 @bot.message_handler(func=lambda message: message.chat.id == OTP_GROUP_ID, content_types=['text', 'photo', 'document', 'location', 'contact'])
 def listen_otp_group(message):
     txt = message.text if message.text else (message.caption if message.caption else "")
     process_single_otp_message(txt)
 
-# 🔥 প্রোভাইডার বট যখন ইনলাইন বাটন আপডেট বা এডিট করবে তখন এই হ্যান্ডলার সেটি ক্যাচ করবে
 @bot.edited_message_handler(func=lambda message: message.chat.id == OTP_GROUP_ID, content_types=['text', 'photo', 'document', 'location', 'contact'])
 def listen_edited_otp_group(message):
     txt = message.text if message.text else (message.caption if message.caption else "")
     process_single_otp_message(txt)
 
-# --- STARTUP HISTORICAL CHECKER ---
-def check_recent_history():
-    try:
-        print("Scanning group history for missing OTPs...")
-        url = f"https://api.telegram.com/bot{API_TOKEN}/getChatHistory"
-        response = requests.post(url, json={"chat_id": OTP_GROUP_ID, "limit": 20}).json()
-        if response.get("ok") and response.get("result"):
-            for message in reversed(response["result"]):
-                txt = message.get("text", "") or message.get("caption", "")
-                process_single_otp_message(txt)
-    except Exception as e: 
-        print(f"History Check Info: {e}")
+# --- 🔥 ULTIMATE BACKGROUND REAL-TIME BOT-BYPASS SCANNER 🔥 ---
+# এই ফাংশনটি প্রতি ১০ সেকেন্ড পর পর এপিআই দিয়ে রিয়েল-টাইম গ্রুপ হিস্ট্রি রিড করবে, ফলে টেলিগ্রাম অন্য বটের মেসেজ লুকাতে পারবে না।
+def background_realtime_otp_scanner():
+    while True:
+        try:
+            url = f"https://api.telegram.com/bot{API_TOKEN}/getChatHistory"
+            response = requests.post(url, json={"chat_id": OTP_GROUP_ID, "limit": 5}, timeout=5).json()
+            if response.get("ok") and response.get("result"):
+                for message in response["result"]:
+                    txt = message.get("text", "") or message.get("caption", "")
+                    process_single_otp_message(txt)
+        except:
+            pass
+        time.sleep(10) # প্রতি ১০ সেকেন্ড পর পর চেক করবে
 
 # --- HANDLERS ---
 @bot.message_handler(commands=['start'])
@@ -416,8 +417,11 @@ if __name__ == "__main__":
     try: bot.remove_webhook()
     except: pass
     
-    check_recent_history()
+    # 🔥 ব্যাকগ্রাউন্ডে রিয়েল-টাইম হিস্ট্রি স্ক্যানার থ্রেডটি চালু করা হলো
+    scanner_thread = threading.Thread(target=background_realtime_otp_scanner, daemon=True)
+    scanner_thread.start()
+    print("Real-time background history loop started successfully.")
     
     print("Bot is successfully running online...")
     bot.infinity_polling(none_stop=True)
-        
+    
