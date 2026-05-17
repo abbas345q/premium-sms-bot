@@ -1,49 +1,40 @@
-import os
 import threading
-import importlib.util
 import time
-import requests
+import importlib.util
+import os
 
-# আপনার পার্সোনাল আইডি আপডেট মেসেজের জন্য
-MY_CHAT_ID = "6781949890"
-BOT_TOKEN = "8674480345:AAHCOBHuV7hBQ0d12bhOpf6RgLvg-ceif3Q"
-
-def send_update(message):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": MY_CHAT_ID, "text": message, "parse_mode": "HTML"}
+def run_script(file_name):
+    print(f"⚙️ [Master] Starting {file_name}...")
     try:
-        requests.post(url, json=payload, timeout=10)
-    except:
-        pass
-
-def run_panel(file_path):
-    script_name = os.path.basename(file_path)
-    try:
-        spec = importlib.util.spec_from_file_location("module", file_path)
+        spec = importlib.util.spec_from_file_location("module", file_name)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         
         if hasattr(module, 'main'):
             module.main()
     except Exception as e:
-        send_update(f"❌ <b>এরর:</b> {script_name} ফাইলে সমস্যা হয়েছে!\n⚠️ <code>{str(e)}</code>")
+        print(f"❌ [Master] Error in {file_name}: {str(e)}")
 
 if __name__ == "__main__":
-    send_update("🤖 <b>Central Master Bot Online!</b>\nপ্যানেলগুলো চেক করা হচ্ছে...")
+    print("🤖 [Master] Starting Central System...")
     
-    # আপনার নতুন ফাইলের নাম সহ লিস্ট ডিফাইন করা হলো
-    panel_files = ["number_bot.py", "panel_number.py"]
+    # ফাইল দুটির নাম লিস্টে ডিফাইন করা হলো
+    files_to_run = ["number_bot.py", "panel_number.py"]
     
-    for file in panel_files:
+    threads = []
+    for file in files_to_run:
         if os.path.exists(file):
-            t = threading.Thread(target=run_panel, args=(file,))
+            t = threading.Thread(target=run_script, args=(file,))
             t.daemon = True
             t.start()
-            time.sleep(2) # সার্ভার লোড কমাতে গ্যাপ
+            threads.append(t)
+            time.sleep(2) # সার্ভার লোড ব্যালেন্স করার জন্য বিরতি
         else:
-            send_update(f"⚠️ ফাইল পাওয়া যায়নি: {file}")
-        
-    # বটকে সচল রাখা
+            print(f"⚠️ [Master] File not found: {file}")
+            
+    print("🚀 [Master] All background threads are running.")
+    
+    # মাস্টার প্রসেসকে আজীবন সচল রাখার লুপ
     while True:
         time.sleep(10)
         
