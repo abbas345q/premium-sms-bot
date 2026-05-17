@@ -66,7 +66,7 @@ def save_cloud_stock(stock_db):
         except: pass
 
         with open(filename, 'rb') as f:
-            bot.send_document(STORAGE_CHANNEL_ID, f, caption="📊 Current Live Stock File (Open to view numbers)")
+            bot.send_document(STORAGE_CHANNEL_ID, f, caption="📊 Current Live Stock File")
         if os.path.exists(filename): os.remove(filename)
     except Exception as e:
         print(f"Stock Save Error: {e}")
@@ -150,13 +150,15 @@ def detect_country_flag(num_str):
 
 def send_country_list(chat_id, message_id=None):
     stock = get_cloud_stock()
-    active = {k: v for k, v in stock.items() if v and len(v) >= 3}
+    # এখানে লজিক পরিবর্তন করা হয়েছে: স্টকে অন্তত ১টি নাম্বার থাকলেই কান্ট্রি শো করবে
+    active = {k: v for k, v in stock.items() if v and len(v) >= 1}
     if not active:
+        msg_text = "❌ **No stock available right now. Please add numbers first.**"
         if message_id:
-            try: bot.edit_message_text("❌ **No stock available right now (Minimum 3 numbers required).**", chat_id, message_id)
+            try: bot.edit_message_text(msg_text, chat_id, message_id)
             except: pass
         else:
-            bot.send_message(chat_id, "❌ **No stock available right now (Minimum 3 numbers required).**")
+            bot.send_message(chat_id, msg_text)
         return
     
     markup = types.InlineKeyboardMarkup(row_width=1)
@@ -264,15 +266,14 @@ def handle_all(message):
         bot.send_message(message.chat.id, f"💳 Balance: {users.get(uid, {}).get('balance', 0.0)} BDT")
     elif message.text == "🌍 Available Countries":
         stock = get_cloud_stock()
-        active = [f"✅ {k} ({len(v)})" for k, v in stock.items() if v and len(v) >= 3]
+        active = [f"✅ {k} ({len(v)})" for k, v in stock.items() if v and len(v) >= 1]
         bot.send_message(message.chat.id, "🌍 Stock List:\n\n" + "\n".join(active) if active else "❌ Stock Empty")
     
-    # 📝 এডমিন ফাইল আপলোড ও নাম্বার ফিল্টারিং সিস্টেম (যেকোনো টেক্সট ফাইল সাপোর্ট করবে)
+    # 📝 এডমিন ফাইল আপলোড ও নাম্বার ফিল্টারিং সিস্টেম
     elif int(message.from_user.id) == ADMIN_ID and message.content_type == 'document':
         f_info = bot.get_file(message.document.file_id)
         txt = bot.download_file(f_info.file_path).decode('utf-8')
         
-        # ফাইল থেকে যেকোনো জায়গায় থাকা সমস্ত বৈধ নাম্বার খুঁজে বের করার রেগুলার এক্সপ্রেশন লজিক
         found = re.findall(r'\+?\d{9,15}', txt)
         if found:
             stock = get_cloud_stock()
@@ -292,11 +293,11 @@ def handle_all(message):
                     added += 1
             
             save_cloud_stock(stock)
-            bot.reply_to(message, f"✅ Successfully parsed and added {added} numbers to Live Stock File!")
+            bot.reply_to(message, f"✅ Successfully parsed and added {added} numbers to Live Stock!")
         else:
             bot.reply_to(message, "❌ No valid numbers found inside the uploaded file.")
 
-    # ⚙️ অ্যাডমিন স্টেট প্রসেসিং (ইনপুট হ্যান্ডলার)
+    # ⚙️ অ্যাডমিন স্টেট প্রসেসিং
     elif int(message.from_user.id) == ADMIN_ID and uid in admin_states:
         state = admin_states.pop(uid)
         cfg = get_settings()
@@ -331,40 +332,44 @@ def handle_query(call):
     message_id = call.message.message_id
     uid = str(call.from_user.id)
 
+    # ক্যালেরি বাটন রেসপন্স নিশ্চিত করার জন্য প্রথমেই answer করা হলো
+    bot.answer_callback_query(call.id)
+
     if call.data == "verify_join":
         if is_user_joined_all(call.from_user.id):
-            bot.delete_message(chat_id, message_id)
+            try: bot.delete_message(chat_id, message_id)
+            except: pass
             handle_start(call.message)
-        else: bot.answer_callback_query(call.id, "❌ জয়েন করেননি!", show_alert=True)
+        else: bot.send_message(chat_id, "❌ আপনি এখনো সব চ্যানেলে জয়েন করেননি!")
 
     elif call.data == "set_ref":
         admin_states[uid] = "ref"
         bot.send_message(chat_id, "✍️ Enter new refer bonus amount:")
-        bot.answer_callback_query(call.id)
     elif call.data == "set_wit":
         admin_states[uid] = "wit"
         bot.send_message(chat_id, "✍️ Enter new min withdraw amount:")
-        bot.answer_callback_query(call.id)
     elif call.data == "clear_stk":
         save_cloud_stock({})
-        bot.answer_callback_query(call.id, "🗑️ Stock completely cleared!", show_alert=True)
+        bot.send_message(chat_id, "🗑️ Stock completely cleared!")
     elif call.data == "broadcast_msg":
         admin_states[uid] = "broadcast"
         bot.send_message(chat_id, "✍️ Send the message you want to broadcast to all users:")
-        bot.answer_callback_query(call.id)
 
     elif call.data.startswith('buy_'):
         country = call.data.replace('buy_', '')
         stock = get_cloud_stock()
         
-        if country in stock and len(stock[country]) >= 3:
+        # এখানে লজিক পরিবর্তন: ১ বা তার বেশি নাম্বার থাকলেও কেনা যাবে
+        if country in stock and len(stock[country]) >= 1:
             users = get_cloud_users()
             if uid not in users: users[uid] = {"balance": 0.0, "ref_count": 0, "name": call.from_user.first_name, "active_numbers": []}
             
             delivered = []
-            for _ in range(3):
+            # স্টকে যতগুলো আছে (সর্বোচ্চ ৩টি) ততগুলোই ইউজারকে দেওয়া হবে
+            take_count = min(3, len(stock[country]))
+            for _ in range(take_count):
                 if stock[country]:
-                    delivered.append(stock[country].pop(0)) # অটোমেটিক স্টক ফাইল থেকে ডিলিট
+                    delivered.append(stock[country].pop(0))
             
             users[uid]["active_numbers"] = [{"number": n, "country": country} for n in delivered]
             
@@ -378,11 +383,12 @@ def handle_query(call):
                 types.InlineKeyboardButton("🚀 GET OTP", url=OTP_GROUP_LINK)
             )
             msg_text = f"🌍 **Country:** {country}\n━━━━━━━━━━━━━━\n{num_text}\n━━━━━━━━━━━━━━\n💡 **Tap number to copy!**"
-            bot.edit_message_text(msg_text, chat_id, message_id, reply_markup=markup, parse_mode="Markdown")
+            try: bot.edit_message_text(msg_text, chat_id, message_id, reply_markup=markup, parse_mode="Markdown")
+            except: bot.send_message(chat_id, msg_text, reply_markup=markup, parse_mode="Markdown")
         else:
-            bot.answer_callback_query(call.id, "❌ Not enough numbers in stock (Minimum 3 required)!", show_alert=True)
+            bot.send_message(chat_id, f"❌ This country ({country}) runs out of stock!")
 
 if __name__ == "__main__":
-    print("Railway formatted openable-database sync bot is active...")
+    print("Railway multi-fix stock engine active...")
     bot.infinity_polling(none_stop=True)
-            
+                        
