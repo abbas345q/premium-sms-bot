@@ -49,13 +49,23 @@ def send_to_telegram_group_premium(service, number, otp, full_msg):
         print(f"⚠️ গ্রুপে ওটিপি ফরওয়ার্ড করতে ব্যর্থ: {e}")
 
 def main():
-    # 🔥 বট চালু হওয়া মাত্র আপনার পার্সোনাল ইনবক্সে শুধু ১টি মাত্র মেসেজ যাবে
-    try:
-        bot.send_message(ADMIN_ID, "✅ <b>আপনার বট সফলভাবে চালু হয়েছে এবং কোড স্ক্যানিং শুরু করেছে।</b>", parse_mode="HTML")
-    except:
-        pass
-        
-    print(f"🚀 {PANEL_NAME} রিয়েল-টাইม ওটিপি চেক করার জন্য প্রস্তুত...")
+    print(f"⚙️ {PANEL_NAME}: মেইন বট রেডি হওয়ার জন্য ৫ সেকেন্ড অপেক্ষা করা হচ্ছে...")
+    time.sleep(5) # মেইন বটের কানেকশন স্টেবল হওয়ার জন্য বিরতি
+    
+    # 🔥 ইনবক্সে কনফার্মেশন মেসেজ পাঠানোর জন্য রিস্টার্ট ট্রাই লুপ
+    msg_sent = False
+    retry_count = 0
+    while not msg_sent and retry_count < 5:
+        try:
+            bot.send_message(ADMIN_ID, "✅ <b>আপনার বট সফলভাবে চালু হয়েছে এবং কোড স্ক্যানিং শুরু করেছে।</b>", parse_mode="HTML")
+            print("🚀 কনফার্মেশন মেসেজ আপনার ইনবক্সে সফলভাবে পাঠানো হয়েছে।")
+            msg_sent = True
+        except Exception as e:
+            retry_count += 1
+            print(f"⚠️ মেসেজ পাঠানো যায়নি (চেষ্টা: {retry_count}/5)। কারণ: {e}")
+            time.sleep(5) # ৫ সেকেন্ড পর আবার চেষ্টা করবে
+            
+    print(f"🚀 {PANEL_NAME} রিয়েল-টাইম ওটিপি চেক করার জন্য প্রস্তুত...")
     
     # ডুপ্লিকেট মেসেজ ফিল্টার করার মেমোরি ফাইল লোড করা
     if os.path.exists(SENT_FILE):
