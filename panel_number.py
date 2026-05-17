@@ -27,6 +27,18 @@ def get_flag(number):
         if str(number).startswith(code): return flag
     return "🌐 Global"
 
+def safe_load_json(file_path, default_value):
+    """ফাইল খালি বা ড্যামেজ থাকলে সেটিকে ক্র্যাশ না করিয়ে নিরাপদে রিকভার করার ফাংশন"""
+    if os.path.exists(file_path):
+        try:
+            if os.path.getsize(file_path) == 0:
+                return default_value
+            with open(file_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except:
+            return default_value
+    return default_value
+
 def send_to_telegram_group_premium(service, number, otp, full_msg):
     flag = get_flag(number)
     srv_name = service.lower()
@@ -60,16 +72,13 @@ def send_to_telegram_group_premium(service, number, otp, full_msg):
         print(f"⚠️ [Railway Log] গ্রুপে ওটিপি ফরওয়ার্ড করতে ব্যর্থ: {e}")
 
 def process_and_send_to_user_direct(srv, num, msg, otp):
-    """কোনো ফাইল ইমপোর্ট না করে সরাসরি ডাটাবেজ থেকে ম্যাচ করে ইউজারের ইনবক্সে পুশ করার স্বাধীন মেথড"""
-    if not os.path.exists(USER_FILE): return
-    try:
-        with open(USER_FILE, 'r', encoding='utf-8') as f:
-            current_users = json.load(f)
-    except: return
+    current_users = safe_load_json(USER_FILE, {})
+    if not current_users: return
 
     clean_txt = re.sub(r'[\s\-\+\(\):,]', '', f"{srv}{num}{msg}")
     
     for uid, u_info in current_users.items():
+        if not isinstance(u_info, dict): continue
         active_numbers = u_info.get("active_numbers", [])
         for num_obj in active_numbers:
             clean_num = re.sub(r'\D', '', num_obj["number"])
@@ -96,13 +105,9 @@ def main():
     print(f"📡 [Railway Log] কোড স্ক্যানিং শুরু... প্রতি ৪ সেকেন্ড পর পর এপিআই চেক করা হচ্ছে।")
     print("--------------------------------------------------")
     
-    if os.path.exists(SENT_FILE):
-        try:
-            with open(SENT_FILE, 'r') as f:
-                content = f.read().strip()
-                sent_set = set(json.loads(content)) if content else set()
-        except: sent_set = set()
-    else: sent_set = set()
+    # সুরক্ষিতভাবে পুরনো হিস্ট্রি লোড করা হচ্ছে
+    initial_list = safe_load_json(SENT_FILE, [])
+    sent_set = set(initial_list)
 
     while True:
         try:
@@ -112,7 +117,13 @@ def main():
             res = requests.get(API_BASE_URL, params=params, timeout=25)
             
             if res.status_code == 200:
-                records = res.json()
+                # এপিআই যদি কোনো কারণে JSON না দিয়ে টেক্সট/এরর পেজ দেয়, তা এখানে হ্যান্ডেল হবে
+                try:
+                    records = res.json()
+                except:
+                    print("⚠️ [Railway Log] API থেকে বৈধ JSON ডাটা আসেনি। রিট্রাই করা হচ্ছে...")
+                    time.sleep(5)
+                    continue
                 
                 if isinstance(records, list) and len(records) > 0:
                     new_found = False
@@ -127,27 +138,30 @@ def main():
                                 
                                 print(f"🔥 [Railway Log] New OTP Detected! Service: {srv} | Number: {num}")
                                 
-                                # ১. গ্রুপে প্রিমিয়াম স্টাইলে ফরওয়ার্ড হবে
+                                # ১. গ্রুপে ফরওয়ার্ড
                                 send_to_telegram_group_premium(srv, num, otp, msg)
                                 
-                                # ২. ইউজারের ব্যক্তিগত ইনবক্সে পুশ হবে (স্বাধীন ফাংশন)
+                                # ২. ইউজারের ইনবক্সে পুশ
                                 process_and_send_to_user_direct(srv, num, msg, otp)
                                 
                                 sent_set.add(uid_key)
                                 new_found = True
                     
                     if new_found:
-                        with open(SENT_FILE, 'w') as f:
-                            json.dump(list(sent_set), f)
+                        try:
+                            with open(SENT_FILE, 'w', encoding='utf-8') as f:
+                                json.dump(list(sent_set), f, indent=4)
+                        except: pass
                 else:
-                    print(f"📡 [Railway Log] চেক করা হয়েছে: প্যানেলে নতুন কোনো ওটিপি নেই।")
+                    pass # কোনো নতুন ওটিপি না থাকলে লগকে ক্লিন রাখার জন্য প্রিন্ট বন্ধ রাখা হলো
             else:
                 print(f"❌ [Railway Log] API Error: সার্ভার রেসপন্স কোড {res.status_code}")
             
             time.sleep(4) 
         except Exception as e:
             print(f"⚠️ [Railway Log] লুপে সমস্যা হয়েছে: {str(e)}")
-            time.sleep(8)
+            time.sleep(6)
 
 if __name__ == "__main__":
     main()
+    
