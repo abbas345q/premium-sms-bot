@@ -4,7 +4,6 @@ import re
 import json
 import os
 import time
-import requests
 import phonenumbers
 from phonenumbers import geocoder
 import threading
@@ -18,30 +17,20 @@ CONFIG_FILE = 'settings.json'
 OTP_GROUP_LINK = "https://t.me/Premium_OTP_chat"
 OTP_GROUP_ID = -1002295608331
 
-# সেশন ডুপ্লিকেশন ও কন্টাক্ট এরর এড়াতে থ্রেড মোড ফলস রাখা হলো
 bot = telebot.TeleBot(API_TOKEN, threaded=False)
 
 def load_data(file, default):
-    # কোনো ফাইল ফাঁকা বা ড্যামেজ থাকলে তা স্বয়ংক্রিয়ভাবে ফিক্স করার মেকানিজম
     if os.path.exists(file):
         try:
-            if os.path.getsize(file) == 0: # ফাইলটি একদম খালি হলে
-                return default
-            with open(file, 'r', encoding='utf-8') as f: 
-                return json.load(f)
-        except (json.JSONDecodeError, Exception) as e:
-            print(f"⚠️ [Fixing File] {file} পুনর্গঠন করা হচ্ছে...")
-            with open(file, 'w', encoding='utf-8') as f:
-                json.dump(default, f, indent=4)
-            return default
+            if os.path.getsize(file) == 0: return default
+            with open(file, 'r', encoding='utf-8') as f: return json.load(f)
+        except: return default
     return default
 
 def save_data(file, data):
     try:
-        with open(file, 'w', encoding='utf-8') as f: 
-            json.dump(data, f, indent=4)
-    except Exception as e:
-        print(f"❌ ডাটা সেভ করতে সমস্যা: {e}")
+        with open(file, 'w', encoding='utf-8') as f: json.dump(data, f, indent=4)
+    except: pass
 
 config = load_data(CONFIG_FILE, {"ref_bonus": 2.0, "min_withdraw": 500.0, "channels": []})
 processed_otps = set()
@@ -82,16 +71,14 @@ def send_country_list(chat_id, message_id=None):
     
     txt = "📍 **Select Country:**"
     try:
-        if message_id:
-            bot.edit_message_text(txt, chat_id, message_id, reply_markup=markup)
-        else:
-            bot.send_message(chat_id, txt, reply_markup=markup)
+        if message_id: bot.edit_message_text(txt, chat_id, message_id, reply_markup=markup)
+        else: bot.send_message(chat_id, txt, reply_markup=markup)
     except: pass
 
 def process_single_otp_message(txt):
     if not txt: return
     try:
-        clean_txt = re.sub(r'[\s\-\+\(\):,]', '', txt)
+        clean_txt = re.sub(r'[\s\-\+\(\):,_\*]', '', txt)
         current_users = load_data(USER_FILE, {})
         
         for uid, u_info in current_users.items():
@@ -117,8 +104,8 @@ def process_single_otp_message(txt):
                     if unique_key in processed_otps: return
                     processed_otps.add(unique_key)
 
-                    service_name = "Unknown Service"
-                    apps = ["Telegram", "WhatsApp", "Imo", "Facebook", "Google", "Viber", "Kakao", "TikTok", "WeChat", "Line", "Snapchat"]
+                    service_name = "Premium Service"
+                    apps = ["Telegram", "WhatsApp", "Imo", "Facebook", "Google", "Viber", "TikTok", "Snapchat"]
                     for app in apps:
                         if app.lower() in txt.lower():
                             service_name = app
@@ -136,17 +123,10 @@ def process_single_otp_message(txt):
                         bot.send_message(int(uid), final_msg, parse_mode="Markdown")
                     except: pass
                     return
-    except Exception as e:
-        print(f"⚠️ [Group Log Error] {e}")
+    except: pass
 
-# মূল পোলিং হ্যান্ডেলার যা গ্রুপের ওটিপি মেসেজ ট্র্যাক করবে
-@bot.message_handler(func=lambda message: message.chat.id == OTP_GROUP_ID, content_types=['text', 'photo', 'document', 'location', 'contact'])
+@bot.message_handler(func=lambda message: message.chat.id == OTP_GROUP_ID, content_types=['text', 'photo', 'document'])
 def listen_otp_group(message):
-    txt = message.text if message.text else (message.caption if message.caption else "")
-    process_single_otp_message(txt)
-
-@bot.edited_message_handler(func=lambda message: message.chat.id == OTP_GROUP_ID, content_types=['text', 'photo', 'document', 'location', 'contact'])
-def listen_edited_otp_group(message):
     txt = message.text if message.text else (message.caption if message.caption else "")
     process_single_otp_message(txt)
 
@@ -394,8 +374,6 @@ def run_panel_file():
     try:
         if os.path.exists("panel_number.py"):
             exec(open("panel_number.py", encoding="utf-8").read(), globals())
-        else:
-            print("⚠️ panel_number.py ফাইলটি খুঁজে পাওয়া যায়নি!")
     except Exception as e:
         print(f"❌ প্যানেল ফাইল ব্যাকগ্রাউন্ডে রান করতে ত্রুটি: {e}")
 
@@ -412,4 +390,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
+        
