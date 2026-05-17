@@ -101,7 +101,7 @@ def process_single_otp_message(txt):
             if user_last_4 in clean_txt:
                 
                 # ওটিপি কোড এক্সট্রাক্ট লজিক
-                otp_match = re.search(r'(?:OTP|code|🔑|🧑‍💻|verification)[:\s]*(\d+)', txt, re.IGNORECASE)
+                otp_match = re.search(r'(?:OTP|code|🔑|🧑‍💻|verification|sms)[:\s]*(\d+)', txt, re.IGNORECASE)
                 if otp_match:
                     otp_code = otp_match.group(1)
                 else:
@@ -135,14 +135,14 @@ def process_single_otp_message(txt):
                 except: pass
                 return
 
-# --- AUTOMATIC OTP GROUP LISTENER (UNIVERSAL CONTENT TYPE & REPLIES) ---
-# এখানে content_types=['text'] এর সাথে সব ধরনের ইনলাইন বাটন বা ক্যাপশনযুক্ত মেসেজও রিড করার পারমিশন দেওয়া হলো
+# --- AUTOMATIC OTP GROUP LISTENER (BOT-TO-BOT ALLOWED) ---
+# 🔥 এখানে func ফিল্টারের পাশাপাশি অন্যান্য বটের মেসেজ ক্যাচ করার পারমিশন দেওয়া হয়েছে
 @bot.message_handler(func=lambda message: message.chat.id == OTP_GROUP_ID, content_types=['text', 'photo', 'document', 'location', 'contact'])
 def listen_otp_group(message):
     txt = message.text if message.text else (message.caption if message.caption else "")
     process_single_otp_message(txt)
 
-# ইনলাইন বাটনসহ মেসেজ এডিট হলেও যেন এই এডিটেড মেসেজ হ্যান্ডলার সচল থাকে তা নিশ্চিত করা হলো
+# 🔥 প্রোভাইডার বট যখন ইনলাইন বাটন আপডেট বা এডিট করবে তখন এই হ্যান্ডলার সেটি ক্যাচ করবে
 @bot.edited_message_handler(func=lambda message: message.chat.id == OTP_GROUP_ID, content_types=['text', 'photo', 'document', 'location', 'contact'])
 def listen_edited_otp_group(message):
     txt = message.text if message.text else (message.caption if message.caption else "")
@@ -277,7 +277,7 @@ def handle_query(call):
             users[uid]["active_numbers"] = []
 
             delivered_numbers = []
-            take_count = min(2, len(curr_db[country]))
+            take_count = min(3, len(curr_db[country]))
             for _ in range(take_count):
                 if curr_db[country]:
                     raw_num = str(curr_db[country].pop(0))
@@ -420,4 +420,4 @@ if __name__ == "__main__":
     
     print("Bot is successfully running online...")
     bot.infinity_polling(none_stop=True)
-    
+        
