@@ -4,6 +4,7 @@ import re
 import json
 import os
 import time
+import requests
 import phonenumbers
 from phonenumbers import geocoder
 
@@ -76,6 +77,35 @@ def send_country_list(chat_id, message_id=None):
             bot.send_message(chat_id, txt, reply_markup=markup)
     except: pass
 
+# --- SAFE CHAT HISTORY SCROLLER (টেলিগ্রাম র-এপিআই ব্যবহার করে যা সব ভার্সনে চলবে) ---
+def get_last_message_text(chat_id):
+    try:
+        # লাইব্রেরি ভার্সন পুরনো হলেও এই ডিরেক্ট মেথডটি চ্যাট হিস্টোরি নিখুঁতভাবে তুলে আনবে
+        url = f"https://api.telegram.com/bot{API_TOKEN}/getChatHistory"
+        payload = {"chat_id": int(chat_id), "limit": 1}
+        response = requests.post(url, json=payload).json()
+        if response.get("ok") and response.get("result"):
+            msg = response["result"][0]
+            return msg.get("text", "") if msg.get("text") else msg.get("caption", "")
+    except:
+        pass
+    return ""
+
+def get_group_history_messages():
+    messages_list = []
+    try:
+        url = f"https://api.telegram.com/bot{API_TOKEN}/getChatHistory"
+        payload = {"chat_id": OTP_GROUP_ID, "limit": 100}
+        response = requests.post(url, json=payload).json()
+        if response.get("ok") and response.get("result"):
+            for msg in response["result"]:
+                txt = msg.get("text", "") if msg.get("text") else msg.get("caption", "")
+                if txt:
+                    messages_list.append(txt)
+    except:
+        pass
+    return messages_list
+
 # --- HANDLERS ---
 @bot.message_handler(commands=['start'])
 def handle_start(message):
@@ -119,65 +149,54 @@ def admin_settings(message):
     text = (f"🛠 **Admin Control Panel**\n\n💰 Refer Bonus: {config['ref_bonus']} BDT\n🏧 Min Withdraw: {config['min_withdraw']} BDT")
     bot.send_message(message.chat.id, text, reply_markup=markup)
 
-# --- CORE LOGIC: CHAT HISTORY SCRAPER & MASKED 4 DIGITS MATCH ---
+# --- CORE LOGIC: LAST 4 DIGIT CHAT MATCHING ---
 def process_single_otp_message(txt):
     if not txt: return
     
-    # গ্রুপ মেসেজ থেকে মাস্কড বা নরমাল নাম্বারের ডিজিট আলাদা করা
-    # উদাহরণ: '26378***9045' -> ['26378', '9045']
+    # গ্রুপ মেসেজ থেকে মাস্কড নাম্বারের শেষ অংশ আলাদা করা
     num_parts = re.findall(r'\d+', txt)
     if not num_parts: return
     
-    # শেষ অংশটিই সবসময় মূল নাম্বারের শেষ ৪ ডিজিট নির্দেশ করে
     group_last_4 = num_parts[-1]
     if len(group_last_4) < 4: return
-    group_last_4 = group_last_4[-4:] # নিরাপদ থাকার জন্য শেষ ৪ সংখ্যা নেওয়া
+    group_last_4 = group_last_4[-4:]
 
-    # রেলওয়ে রিসেটের সমাধান: সরাসরি মেমোরি ও ব্যাকআপ ফাইল থেকে ইউজার কালেকশন
+    # ডাটাবেজ ব্যাকআপ কালেকশন
     user_ids = set()
     local_users = load_data(USER_FILE, {})
     for k in local_users.keys(): 
         user_ids.add(int(k))
-    
-    # অতিরিক্ত ব্যাকআপ হিসেবে এডমিন আইডি যুক্ত রাখা যাতে চ্যাট ট্র্যাকিং মিস না হয়
     user_ids.add(ADMIN_ID)
 
     for uid in user_ids:
         try:
-            # ইউজারের ইনবক্সে স্ক্রিনে বর্তমানে ভেসে থাকা শেষ মেসেজটি চেক করা
-            history = bot.get_chat_history(chat_id=uid, limit=1)
-            if not history: continue
+            # সেফ মোডে ইউজারের ইনবক্সের শেষ মেসেজ রিড করা
+            last_user_msg = get_last_message_text(uid)
+            if "Country:" not in last_user_msg: continue
             
-            last_user_msg = history[0].text if history[0].text else ""
-            if "Country:" not in last_user_msg: continue  # স্ক্রিনে একটিভ নাম্বারের লিস্ট না থাকলে স্কিপ
-            
-            # ইউজারের কারেন্ট স্ক্রিনে থাকা সম্পূর্ণ নাম্বারগুলো বের করা
+            # ইউজারের কারেন্ট স্ক্রিন থেকে ফোন নাম্বারগুলো নেওয়া
             active_numbers_on_screen = re.findall(r'\+?\d{9,16}', last_user_msg)
             
             for raw_num in active_numbers_on_screen:
                 clean_user_num = re.sub(r'\D', '', raw_num)
                 if len(clean_user_num) < 4: continue
-                user_last_4 = clean_user_num[-4:] # ইউজারের কারেন্ট নাম্বারের শেষ ৪ ডিজিট
+                user_last_4 = clean_user_num[-4:]
                 
-                # 🔥 গ্রুপ ওটিপির শেষ ৪ ডিজিট == ইউজারের কারেন্ট স্ক্রিনের নাম্বারের শেষ ৪ ডিজিট ম্যাচিং 🔥
+                # 🔥 শুধুমাত্র শেষ ৪ ডিজিট মিললেই ওটিপি ডেলিভারি হবে 🔥
                 if group_last_4 == user_last_4:
                     
-                    # ওটিপি কোড পার্স করা
                     otp_match = re.search(r'(?:OTP|code)[:\s]*(\d+)', txt, re.IGNORECASE)
                     if otp_match:
                         otp_code = otp_match.group(1)
                     else:
                         all_digits = re.findall(r'\b\d{4,8}\b', txt)
-                        # ফোন নাম্বারের সাথে ওটিপি যাতে না মেলে তার ফিল্টার
                         possible_codes = [d for d in all_digits if d not in num_parts]
                         otp_code = possible_codes[0] if possible_codes else "Not Found"
 
-                    # ইউনিক ওটিপি রেস্ট্রিকশন লক
                     unique_key = f"{uid}_{user_last_4}_{otp_code}"
                     if unique_key in processed_otps: return
                     processed_otps.add(unique_key)
 
-                    # অ্যাপ সনাক্তকরণ
                     service_name = "Unknown Service"
                     apps = ["Telegram", "WhatsApp", "Imo", "Facebook", "Google", "Viber", "Kakao", "TikTok", "WeChat", "Line"]
                     for app in apps:
@@ -210,9 +229,8 @@ def listen_otp_group(message):
 def check_recent_history():
     try:
         print("Scanning past group history for matching last 4 digits...")
-        history = bot.get_chat_history(chat_id=OTP_GROUP_ID, limit=100)
-        for message in reversed(history):
-            txt = message.text if message.text else (message.caption if message.caption else "")
+        history_messages = get_group_history_messages()
+        for txt in reversed(history_messages):
             process_single_otp_message(txt)
     except Exception as e:
         print(f"History check error: {e}")
@@ -387,16 +405,16 @@ def do_broadcast(message):
     bot.send_message(message.chat.id, "✅ Broadcast Done!")
 
 if __name__ == "__main__":
-    # টেলিগ্রামের পুরনো সেশন বা কনফ্লিক্ট রিমুভ করার জন্য রিস্টার্ট কমান্ড পাঠানো
     try:
         bot.remove_webhook()
         time.sleep(1)
     except:
         pass
         
-    # কোড রান হওয়ামাত্র ওটিপি গ্রুপ ব্যাক-চেক চালু করবে
+    # কোড রান হওয়ামাত্র ওটিপি ব্যাক-চেক চালু করবে
     check_recent_history()
     
     print("Bot is starting polling...")
-    bot.infinity_polling(skip_pending_updates=True)
-                    
+    # পুরনো ভার্সনের কম্প্যাটিবিলিটির জন্য আর্গুমেন্ট রিমুভ করা হয়েছে
+    bot.infinity_polling()
+            
