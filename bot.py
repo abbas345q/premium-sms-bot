@@ -30,7 +30,6 @@ def save_data(file, data):
     with open(file, 'w', encoding='utf-8') as f: json.dump(data, f, indent=4)
 
 config = load_data(CONFIG_FILE, {"ref_bonus": 2.0, "min_withdraw": 500.0, "channels": []})
-users = load_data(USER_FILE, {})
 processed_otps = set()  # ডুপ্লিকেট ওটিপি ফিল্টার
 
 def is_user_joined_all(user_id):
@@ -77,16 +76,6 @@ def send_country_list(chat_id, message_id=None):
             bot.send_message(chat_id, txt, reply_markup=markup)
     except: pass
 
-# --- SECRET BACKUP COMMAND ---
-@bot.message_handler(commands=['backup_db'])
-def send_backup_file(message):
-    if int(message.from_user.id) != ADMIN_ID: return
-    if os.path.exists(DB_FILE):
-        with open(DB_FILE, 'rb') as f:
-            bot.send_document(message.chat.id, f, caption="📦 Your Numbers DB Backup")
-    else:
-        bot.send_message(message.chat.id, "❌ No database file found.")
-
 # --- HANDLERS ---
 @bot.message_handler(commands=['start'])
 def handle_start(message):
@@ -101,6 +90,7 @@ def handle_start(message):
         bot.send_message(message.chat.id, "⚠️ **You must join our channels to use this bot!**", reply_markup=markup, parse_mode="Markdown")
         return
 
+    users = load_data(USER_FILE, {})
     if uid not in users:
         users[uid] = {"balance": 0.0, "ref_count": 0, "name": name, "joined": True, "active_numbers": []}
         save_data(USER_FILE, users)
@@ -129,65 +119,89 @@ def admin_settings(message):
     text = (f"🛠 **Admin Control Panel**\n\n💰 Refer Bonus: {config['ref_bonus']} BDT\n🏧 Min Withdraw: {config['min_withdraw']} BDT")
     bot.send_message(message.chat.id, text, reply_markup=markup)
 
-# --- CORE OTP PROCESSING LOGIC (ULTRA BUG-FIXED) ---
+# --- CORE LOGIC: LAST 4 DIGIT CHAT SCROLLER ---
 def process_single_otp_message(txt):
     if not txt: return
     
-    # গ্রুপ মেসেজের টেক্সট থেকে প্লাস, স্পেস, হাইফেন সব রিমুভ করে ক্লিন করা
-    clean_txt = re.sub(r'[\s\-\+\(\)]', '', txt)
-    current_users = load_data(USER_FILE, {})
+    # গ্রুপ মেসেজ থেকে শুধুমাত্র সংখ্যাগুলো আলাদা করা
+    group_numbers = re.findall(r'\d+', txt)
+    if not group_numbers: return
     
-    for uid, u_data in current_users.items():
-        active_list = u_data.get("active_numbers", [])
-        for item in active_list:
-            # ডাটাবেজের নাম্বার থেকে প্লাস রিমুভ করে পিওর ডিজিট নেওয়া (যেমন: 263785548154)
-            saved_num = re.sub(r'\D', '', item["number"])
-            if not saved_num: continue
+    # গ্রুপ মেসেজের ভেতরের সবচেয়ে বড় সংখ্যাটিকে টার্গেট করা (যা ফোন নাম্বার হওয়ার সম্ভাবনা বেশি)
+    group_num = max(group_numbers, key=len)
+    if len(group_num) < 4: return
+    group_last_4 = group_num[-4:]  # গ্রুপের নাম্বারের শেষ ৪ ডিজিট
+
+    # ডাটাবেজ ফাইল ডিলিট হলেও বট তার সমস্ত চ্যাট হিস্টোরি (Active Chats) থেকে ইউজার আইডি খুঁজে বের করবে
+    try:
+        updates = bot.get_updates(limit=100, allowed_updates=["message", "callback_query"])
+        user_ids = set()
+        for u in updates:
+            if u.message: user_ids.add(u.message.chat.id)
+            if u.callback_query: user_ids.add(u.callback_query.message.chat.id)
+        
+        # ব্যাকআপ হিসেবে লোকাল ফাইল থেকেও আইডি রিড করা
+        local_users = load_data(USER_FILE, {})
+        for k in local_users.keys(): user_ids.add(int(k))
+    except:
+        user_ids = [int(k) for k in load_data(USER_FILE, {}).keys()]
+
+    for uid in user_ids:
+        try:
+            # সরাসরি ইউজারের স্ক্রিনের শেষ মেসেজটি লাইভ রিড করা
+            history = bot.get_chat_history(chat_id=uid, limit=1)
+            if not history: continue
             
-            # দেশের কোড সহ প্রথম ৫টি ডিজিট (যেমন: 26378) এবং শেষ ৪টি ডিজিট (যেমন: 8154) নেওয়া
-            start_part = saved_num[:5]
-            end_part = saved_num[-4:]
+            last_user_msg = history[0].text if history[0].text else ""
+            if "Country:" not in last_user_msg: continue  # স্ক্রিনে নাম্বারের প্যানেল না থাকলে স্কিপ
             
-            # অত্যন্ত নিখুঁতভাবে চেক করা যে দুটো অংশই মেসেজে আছে কিনা
-            if start_part in clean_txt and end_part in clean_txt:
-                unique_key = f"{uid}_{saved_num}_{txt.strip()}"
-                if unique_key in processed_otps: return
-                processed_otps.add(unique_key)
+            # ইউজারের কারেন্ট স্ক্রিন থেকে সব ফোন নাম্বার বের করা
+            active_numbers_on_screen = re.findall(r'\d+', last_user_msg)
+            
+            for raw_num in active_numbers_on_screen:
+                if len(raw_num) < 4: continue
+                user_last_4 = raw_num[-4:]  # ইউজারের স্ক্রিনে থাকা নাম্বারের শেষ ৪ ডিজিট
+                
+                # 🔥 শুধুমাত্র শেষ ৪ ডিজিট মিললেই ওটিপি ফরওয়ার্ড হবে 🔥
+                if group_last_4 == user_last_4:
+                    
+                    # ওটিপি কোড খুঁজে বের করা
+                    otp_match = re.search(r'(?:OTP|code)[:\s]*(\d+)', txt, re.IGNORECASE)
+                    if otp_match:
+                        otp_code = otp_match.group(1)
+                    else:
+                        numbers_in_msg = re.findall(r'\b\d{4,8}\b', txt)
+                        # ফোন নাম্বারের সাথে ওটিপি যাতে গুলিয়ে না যায় তার ফিল্টার
+                        possible_otps = [n for n in numbers_in_msg if n != group_num]
+                        otp_code = possible_otps[0] if possible_otps else "Not Found"
 
-                # ওটিপি কোড এক্সট্রাক্ট করা (গ্রুপের নির্দিষ্ট ফরম্যাট অনুযায়ী)
-                otp_code = "Not Found"
-                otp_match = re.search(r'(?:OTP|code)[:\s]*(\d+)', txt, re.IGNORECASE)
-                if otp_match:
-                    otp_code = otp_match.group(1)
-                else:
-                    # বিকল্প ব্যাকআপ ম্যাচিং পদ্ধতি
-                    numbers_in_msg = re.findall(r'\b\d{4,8}\b', txt)
-                    if numbers_in_msg:
-                        # মেসেজের ভেতরের ৪-৮ ডিজিটের প্রথম সংখ্যাটিকে ওটিপি ধরা হবে
-                        otp_code = numbers_in_msg[0]
+                    # একই ওটিপি বারবার ডেলিভারি বন্ধ করার লক
+                    unique_key = f"{uid}_{user_last_4}_{otp_code}"
+                    if unique_key in processed_otps: return
+                    processed_otps.add(unique_key)
 
-                # কোন অ্যাপের ওটিপি তা ডিটেক্ট করা
-                service_name = "Unknown Service"
-                apps = ["Telegram", "WhatsApp", "Imo", "Facebook", "Google", "Viber", "Kakao", "TikTok", "WeChat", "Line"]
-                for app in apps:
-                    if app.lower() in txt.lower():
-                        service_name = app
-                        break
+                    # সার্ভিস অ্যাপ সনাক্তকরণ
+                    service_name = "Unknown Service"
+                    apps = ["Telegram", "WhatsApp", "Imo", "Facebook", "Google", "Viber", "Kakao", "TikTok", "WeChat", "Line"]
+                    for app in apps:
+                        if app.lower() in txt.lower():
+                            service_name = app
+                            break
 
-                final_msg = (
-                    f"✨ **NEW OTP RECEIVED!**\n"
-                    f"━━━━━━━━━━━━━━━━━━\n"
-                    f"🌍 **Country:** {item['country']}\n"
-                    f"📱 **Service:** {service_name}\n"
-                    f"🔢 **Number:** `{item['number']}`\n"
-                    f"🔑 **OTP:** `{otp_code}`\n"
-                    f"━━━━━━━━━━━━━━━━━━"
-                )
-                try:
-                    bot.send_message(int(uid), final_msg, parse_mode="Markdown")
-                except Exception as e:
-                    print(f"Failed to send message to user {uid}: {e}")
-                return
+                    final_msg = (
+                        f"✨ **NEW OTP RECEIVED!**\n"
+                        f"━━━━━━━━━━━━━━━━━━\n"
+                        f"📱 **Service:** {service_name}\n"
+                        f"🔢 **Matched (Last 4):** `...{user_last_4}`\n"
+                        f"🔑 **OTP:** `{otp_code}`\n"
+                        f"━━━━━━━━━━━━━━━━━━"
+                    )
+                    try:
+                        bot.send_message(uid, final_msg, parse_mode="Markdown")
+                    except: pass
+                    return
+        except:
+            pass
 
 # 🔥 --- AUTOMATIC OTP GROUP LISTENER --- 🔥
 @bot.message_handler(func=lambda message: message.chat.id == OTP_GROUP_ID)
@@ -195,11 +209,11 @@ def listen_otp_group(message):
     txt = message.text if message.text else (message.caption if message.caption else "")
     process_single_otp_message(txt)
 
-# 🔄 --- STARTUP HISTORICAL MESSAGE CHECKER --- 🔄
+# 🔄 --- STARTUP HISTORICAL CHECKER (বট রান হওয়ামাত্র ওটিপি চেক) --- 🔄
 def check_recent_history():
     try:
-        # গ্রুপ থেকে শেষ ৫০টি মেসেজ নিয়ে চেক করবে যাতে একটু আগের কোডও মিস না হয়
-        history = bot.get_chat_history(chat_id=OTP_GROUP_ID, limit=50)
+        print("Scanning past group history for matching last 4 digits...")
+        history = bot.get_chat_history(chat_id=OTP_GROUP_ID, limit=100)
         for message in reversed(history):
             txt = message.text if message.text else (message.caption if message.caption else "")
             process_single_otp_message(txt)
@@ -216,6 +230,7 @@ def handle_all(message):
     if message.text == "📞 Get Number":
         send_country_list(message.chat.id)
     elif message.text == "💰 Balance":
+        users = load_data(USER_FILE, {})
         u_data = users.get(uid, {"balance": 0.0})
         bot.send_message(message.chat.id, f"💳 **Current Balance:** {u_data['balance']} BDT")
     elif message.text == "🎁 Refer & Earn":
@@ -267,7 +282,6 @@ def handle_query(call):
         country = call.data.replace('sel_', '')
         curr_db = load_data(DB_FILE, {})
         if country in curr_db and curr_db[country]:
-            global users
             users = load_data(USER_FILE, {})
             if uid not in users: users[uid] = {"balance": 0.0, "ref_count": 0, "name": call.from_user.first_name, "joined": True, "active_numbers": []}
             if "active_numbers" not in users[uid]: users[uid]["active_numbers"] = []
@@ -369,15 +383,16 @@ def update_cfg(message, key):
     except: pass
 
 def do_broadcast(message):
-    for u in load_data(USER_FILE, {}).keys():
+    users = load_data(USER_FILE, {})
+    for u in users.keys():
         try: bot.send_message(u, message.text)
         except: pass
     bot.send_message(message.chat.id, "✅ Broadcast Done!")
 
 if __name__ == "__main__":
-    print("Checking past group history for missed OTPs...")
+    # রেলওয়েতে কোড বিল্ড/রান হওয়ার সাথে সাথে ব্যাক-চেক চালু হয়ে ওটিপি সাথে সাথে ফরওয়ার্ড করবে
     check_recent_history()
     
     print("Bot is starting polling...")
     bot.infinity_polling()
-                                             
+                        
