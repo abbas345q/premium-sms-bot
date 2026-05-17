@@ -5,8 +5,8 @@ import json
 import os
 from datetime import datetime, timedelta
 
-# 🔥 মেইন ফাইল (number_bot) থেকে বটের অবজেক্ট ও আইডি শেয়ার করা হচ্ছে
-from number_bot import bot, OTP_GROUP_ID, USER_FILE
+# 🔥 মেইন ফাইল (number_bot) থেকে বটের অবজেক্ট, আইডি ও ওটিপি প্রসেসর শেয়ার করা হচ্ছে
+from number_bot import bot, OTP_GROUP_ID, USER_FILE, ADMIN_ID, process_single_otp_message
 
 # === API CONFIGURATION ===
 PANEL_NAME = "Premium OTP Panel" 
@@ -15,11 +15,47 @@ API_BASE_URL = 'http://147.135.212.197/crapi/st/viewstats'
 
 SENT_FILE = 'db_number_panel.json' # প্যানেলের জন্য ওটিপি ট্র্যাকিং ডাটাবেস
 
-# ওটিপি মেসেজ প্রসেস করার জন্য মেইন ফাইল থেকে ফাংশনটি নিয়ে আসা হলো
-from number_bot import process_single_otp_message
+# আইকন ও দেশ সেটিংস (গ্রুপে প্রিমিয়াম স্টাইলে মেসেজ পাঠানোর জন্য)
+COUNTRY_MAP = {"263": "🇿🇼 ZW", "964": "🇮🇶 IQ", "880": "🇧🇩 BD", "91": "🇮🇳 IN", "1": "🇺🇸 US", "234": "🇳🇬 NG"}
+SERVICE_ICONS = {"facebook": "🔵 Facebook", "whatsapp": "🟢 WhatsApp", "telegram": "✈️ Telegram"}
+
+def mask_number(number):
+    num_str = str(number).strip()
+    return f"{num_str[:-7]}***{num_str[-4:]}" if len(num_str) > 7 else num_str
+
+def get_flag(number):
+    for code, flag in COUNTRY_MAP.items():
+        if str(number).startswith(code): return flag
+    return "🌐 Global"
+
+def send_to_telegram_group_premium(service, number, otp, full_msg):
+    """গ্রুপে ওটিপি আসার সাথে সাথে প্রিমিয়াম স্টাইলে ফরওয়ার্ড করার ফাংশন"""
+    flag = get_flag(number)
+    srv_name = service.lower()
+    header = next((v for k, v in SERVICE_ICONS.items() if k in srv_name), f"🔔 {service.upper()}")
+    
+    text = (
+        f"✅ <b>New OTP Received</b>\n\n"
+        f"{flag}\n<b>{header}</b>\n\n"
+        f"📲 <b>Number:</b> <code>{mask_number(number)}</code>\n\n"
+        f"🔑 <b>OTP:</b> <code>{otp}</code>\n\n"
+        f"📩 <b>Full Msg:</b>\n"
+        f"<pre>{full_msg}</pre>"
+    )
+    markup = {"inline_keyboard": [[{"text": "🔝 Number", "url": "https://t.me/Premium_SMS2_bot"},{"text": "🤖 Methods", "url": "https://t.me/Earning_Tips055"}]]}
+    try:
+        bot.send_message(OTP_GROUP_ID, text, parse_mode="HTML", reply_markup=json.dumps(markup))
+    except Exception as e:
+        print(f"⚠️ গ্রুপে ওটিপি ফরওয়ার্ড করতে ব্যর্থ: {e}")
 
 def main():
-    print(f"🚀 {PANEL_NAME} রিয়েল-টাইম ওটিপি চেক করার জন্য প্রস্তুত...")
+    # 🔥 বট চালু হওয়া মাত্র আপনার পার্সোনাল ইনবক্সে শুধু ১টি মাত্র মেসেজ যাবে
+    try:
+        bot.send_message(ADMIN_ID, "✅ <b>আপনার বট সফলভাবে চালু হয়েছে এবং কোড স্ক্যানিং শুরু করেছে।</b>", parse_mode="HTML")
+    except:
+        pass
+        
+    print(f"🚀 {PANEL_NAME} রিয়েল-টাইม ওটিপি চেক করার জন্য প্রস্তুত...")
     
     # ডুপ্লিকেট মেসেজ ফিল্টার করার মেমোরি ফাইল লোড করা
     if os.path.exists(SENT_FILE):
@@ -55,7 +91,14 @@ def main():
                             
                             # ওটিপিটি আগে পাঠানো না হয়ে থাকলে প্রসেস করবে
                             if uid_key not in sent_set:
-                                # মেইন বটের ইঞ্জিনে মেসেজটি পুশ করা হলো (যা ১ সেকেন্ডে ইউজারের ইনবক্সে চলে যাবে)
+                                # মেসেজ থেকে শুধু ওটিপি কোডটি আলাদা করার লজিক
+                                otp_match = re.search(r'\b(\d{4,8})\b', msg)
+                                otp = otp_match.group() if otp_match else "N/A"
+                                
+                                # ১. 🔥 ওটিপি পাওয়ার সাথে সাথে আপনার মেইন গ্রুপে প্রিমিয়াম স্টাইলে ফরওয়ার্ড হবে
+                                send_to_telegram_group_premium(srv, num, otp, msg)
+                                
+                                # ২. 🔥 ওটিপি পাওয়ার সাথে সাথে ইউজারের ব্যক্তিগত ইনবক্সেও পুশ হবে
                                 full_text = f"Service: {srv}\nNumber: {num}\nMsg: {msg}"
                                 process_single_otp_message(full_text)
                                 
