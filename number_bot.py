@@ -17,7 +17,7 @@ CONFIG_FILE = 'settings.json'
 OTP_GROUP_LINK = "https://t.me/Premium_OTP_chat"
 OTP_GROUP_ID = -1002295608331
 
-# থ্রেড মোড ফলস রেখে সাধারণ সিঙ্গেল সেশন পোলিং সচল রাখা হলো
+# সেশন ডুপ্লিকেশন এড়াতে থ্রেড মোড ফলস রাখা হলো
 bot = telebot.TeleBot(API_TOKEN, threaded=False)
 
 def load_data(file, default):
@@ -122,6 +122,7 @@ def process_single_otp_message(txt):
                 except: pass
                 return
 
+# মূল পোলিং হ্যান্ডেলার যা গ্রুপের ওটিপি মেসেজ ট্র্যাক করবে
 @bot.message_handler(func=lambda message: message.chat.id == OTP_GROUP_ID, content_types=['text', 'photo', 'document', 'location', 'contact'])
 def listen_otp_group(message):
     txt = message.text if message.text else (message.caption if message.caption else "")
@@ -242,7 +243,7 @@ def handle_query(call):
             
             users[uid]["active_numbers"] = []
             delivered_numbers = []
-            take_count = min(2, len(curr_db[country]))
+            take_count = min(3, len(curr_db[country]))
             for _ in range(take_count):
                 if curr_db[country]:
                     raw_num = str(curr_db[country].pop(0))
@@ -363,12 +364,9 @@ def update_cfg(message, key):
         bot.send_message(message.chat.id, "✅ Updated!")
     except: pass
 
-# এডমিনের ম্যানুয়াল ব্রডকাস্ট সিস্টেম (টেলিগ্রাম এন্টি-ফ্লাড সেইফগার্ড ডিলে সহ)
 def do_broadcast(message):
     for u in load_data(USER_FILE, {}).keys():
-        try: 
-            bot.send_message(int(u), message.text)
-            time.sleep(0.05)
+        try: bot.send_message(int(u), message.text)
         except: pass
     bot.send_message(message.chat.id, "✅ Broadcast Done!")
 
@@ -377,9 +375,9 @@ def main():
     try: bot.remove_webhook()
     except: pass
     
-    print("Premium OTP Panel successfully running online...")
+    print("Shop Bot is successfully running online via Master...")
     bot.infinity_polling(none_stop=True)
 
 if __name__ == "__main__":
     main()
-    
+                          
