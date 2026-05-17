@@ -20,7 +20,6 @@ OTP_GROUP_ID = -1002295608331
 
 bot = telebot.TeleBot(API_TOKEN, threaded=False)
 
-# --- DATA PERSISTENCE ---
 def load_data(file, default):
     if os.path.exists(file):
         try:
@@ -76,7 +75,6 @@ def send_country_list(chat_id, message_id=None):
             bot.send_message(chat_id, txt, reply_markup=markup)
     except: pass
 
-# --- CORE LOGIC: OTP PROCESSOR ---
 def process_single_otp_message(txt):
     if not txt: return
     clean_txt = re.sub(r'[\s\-\+\(\):,]', '', txt)
@@ -256,7 +254,7 @@ def handle_query(call):
             
             users[uid]["active_numbers"] = []
             delivered_numbers = []
-            take_count = min(2, len(curr_db[country]))
+            take_count = min(3, len(curr_db[country]))
             for _ in range(take_count):
                 if curr_db[country]:
                     raw_num = str(curr_db[country].pop(0))
@@ -394,6 +392,6 @@ def main():
     print("Shop Bot is successfully running online via Master...")
     bot.infinity_polling(none_stop=True)
 
-# এই ব্লকিং কন্ডিশনটির কারণে ফাইলটি ইমপোর্ট করার সময় অটো-রান হবে না 
 if __name__ == "__main__":
     main()
+                
