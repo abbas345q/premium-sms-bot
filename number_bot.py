@@ -208,6 +208,8 @@ def handle_all(message):
         if found:
             curr_db = load_data(DB_FILE, {})
             added = 0
+            detected_countries = set()  # কোন কোন দেশ যুক্ত হলো তা ট্র্যাক করার জন্য
+            
             for r in found:
                 clean_r = "+" + r.lstrip('+')
                 flag = detect_country_flag(clean_r)
@@ -218,8 +220,33 @@ def handle_all(message):
                 if clean_r not in curr_db[c_name]:
                     curr_db[c_name].append(clean_r)
                     added += 1
+                    detected_countries.add(c_name)
+                    
             save_data(DB_FILE, curr_db)
             bot.reply_to(message, f"✅ Added {added} numbers to stock.")
+            
+            # --- ৩-৪ লাইনের আল্ট্রা-শর্ট অটোমেটিক ব্রডকাস্ট সিস্টেম ---
+            if added > 0:
+                country_details = ", ".join(detected_countries)
+                
+                premium_alert = (
+                    f"🔥 <b>FRESH STOCK ADDED! (High Traffic)</b> 🚀\n"
+                    f"📢 প্যানেলে নতুন ফ্রেশ <b>{added}টি</b> নাম্বার যুক্ত করা হয়েছে।\n"
+                    f"🌍 <b>দেশসমূহ:</b> {country_details}\n"
+                    f"⚡ সুপার-ফাস্ট ওটিপি পেতে এখনই নিচের বাটনে ক্লিক করে নাম্বার নিন!"
+                )
+                
+                # ইনলাইন বাটন
+                markup = types.InlineKeyboardMarkup()
+                markup.add(types.InlineKeyboardButton("📞 GET NUMBER NOW", callback_data="back_c"))
+                
+                # সকল রেজিস্টার্ড ইউজারের কাছে অটোমেটিক নোটিফিকেশন পাঠানো
+                all_users = load_data(USER_FILE, {})
+                for user_id in all_users.keys():
+                    try:
+                        bot.send_message(int(user_id), premium_alert, parse_mode="HTML", reply_markup=markup)
+                    except:
+                        pass
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
@@ -243,7 +270,7 @@ def handle_query(call):
             
             users[uid]["active_numbers"] = []
             delivered_numbers = []
-            take_count = min(3, len(curr_db[country]))
+            take_count = min(2, len(curr_db[country]))
             for _ in range(take_count):
                 if curr_db[country]:
                     raw_num = str(curr_db[country].pop(0))
@@ -380,4 +407,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-                    
+                
