@@ -7,7 +7,6 @@ import time
 import requests
 import phonenumbers
 from phonenumbers import geocoder
-import threading
 
 # --- CONFIGURATION ---
 API_TOKEN = '7634786660:AAHvY09ndmYnO6pLpz_84rSLqGUEMlfwNd4'
@@ -18,6 +17,7 @@ CONFIG_FILE = 'settings.json'
 OTP_GROUP_LINK = "https://t.me/Premium_OTP_chat"
 OTP_GROUP_ID = -1002295608331
 
+# সেশন ডুপ্লিকেশন এড়াতে থ্রেড মোড ফলস রাখা হলো
 bot = telebot.TeleBot(API_TOKEN, threaded=False)
 
 def load_data(file, default):
@@ -122,6 +122,7 @@ def process_single_otp_message(txt):
                 except: pass
                 return
 
+# মূল পোলিং হ্যান্ডেলার যা গ্রুপের ওটিপি মেসেজ ট্র্যাক করবে
 @bot.message_handler(func=lambda message: message.chat.id == OTP_GROUP_ID, content_types=['text', 'photo', 'document', 'location', 'contact'])
 def listen_otp_group(message):
     txt = message.text if message.text else (message.caption if message.caption else "")
@@ -131,18 +132,6 @@ def listen_otp_group(message):
 def listen_edited_otp_group(message):
     txt = message.text if message.text else (message.caption if message.caption else "")
     process_single_otp_message(txt)
-
-def background_realtime_otp_scanner():
-    while True:
-        try:
-            url = f"https://api.telegram.com/bot{API_TOKEN}/getChatHistory"
-            response = requests.post(url, json={"chat_id": OTP_GROUP_ID, "limit": 5}, timeout=5).json()
-            if response.get("ok") and response.get("result"):
-                for message in response["result"]:
-                    txt = message.get("text", "") or message.get("caption", "")
-                    process_single_otp_message(txt)
-        except: pass
-        time.sleep(10)
 
 @bot.message_handler(commands=['start'])
 def handle_start(message):
@@ -386,12 +375,9 @@ def main():
     try: bot.remove_webhook()
     except: pass
     
-    scanner_thread = threading.Thread(target=background_realtime_otp_scanner, daemon=True)
-    scanner_thread.start()
-    
     print("Shop Bot is successfully running online via Master...")
     bot.infinity_polling(none_stop=True)
 
 if __name__ == "__main__":
     main()
-                
+                    
