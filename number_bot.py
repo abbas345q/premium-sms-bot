@@ -7,6 +7,7 @@ import time
 import requests
 import phonenumbers
 from phonenumbers import geocoder
+import threading  # ব্যাকগ্রাউন্ডে প্যানেল ফাইলটি রান করার জন্য থ্রেডিং আর্কিটেকচার
 
 # --- CONFIGURATION ---
 API_TOKEN = '7634786660:AAHvY09ndmYnO6pLpz_84rSLqGUEMlfwNd4'
@@ -17,7 +18,7 @@ CONFIG_FILE = 'settings.json'
 OTP_GROUP_LINK = "https://t.me/Premium_OTP_chat"
 OTP_GROUP_ID = -1002295608331
 
-# সেশন কনফ্লিক্ট ও ৪MD৪ এরর এড়াতে থ্রেড মোড ফলস রাখা হলো
+# সেশন ডুপ্লিকেশন ও ৪MD৪ এরর এড়াতে থ্রেড মোড ফলস রাখা হলো
 bot = telebot.TeleBot(API_TOKEN, threaded=False)
 
 def load_data(file, default):
@@ -330,7 +331,7 @@ def handle_query(call):
         bot.edit_message_text("⚙️ **Manage Channels:**", chat_id, message_id, reply_markup=markup)
 
     elif call.data == "add_ch":
-        msg = bot.send_message(chat_id, "Format: `@Username https://link`")
+        msg = msg = bot.send_message(chat_id, "Format: `@Username https://link`")
         bot.register_next_step_handler(msg, process_add_ch)
 
     elif call.data.startswith("delch_"):
@@ -372,15 +373,30 @@ def do_broadcast(message):
         except: pass
     bot.send_message(message.chat.id, "✅ Broadcast Done!")
 
+# প্যানেল ফাইলের ব্যাকগ্রাউন্ড এক্সিকিউশন মেথড
+def run_panel_file():
+    print("[Thread Manager] panel_number.py ব্যাকগ্রাউন্ডে সফলভাবে চালু হয়েছে...")
+    try:
+        # যদি ফাইলটি একই ডিরেক্টরিতে থাকে তবে পাইথন প্রসেসের ভেতর থেকে এটি এক্সিকিউট হবে
+        if os.path.exists("panel_number.py"):
+            exec(open("panel_number.py", encoding="utf-8").read(), globals())
+        else:
+            print("⚠️ panel_number.py ফাইলটি খুঁজে পাওয়া যায়নি!")
+    except Exception as e:
+        print(f"❌ প্যানেল ফাইল ব্যাকগ্রাউন্ডে রান করতে ত্রুটি: {e}")
+
 def main():
-    # ডাবল সেশন জটলা দূর করতে স্টার্টআপ মেমোরি ক্লিয়ার করা হলো
+    print("Clearing webhooks and initial conflicts...")
     try: bot.remove_webhook()
     except: pass
     
+    # Procfile এর ঝামেলা এড়াতে এখানেই থ্রেড তৈরি করে panel_number.py রান করানো হলো
+    panel_thread = threading.Thread(target=run_panel_file, daemon=True)
+    panel_thread.start()
+    
     print("Shop Bot is successfully running online via Master...")
-    # ২টি ফাইল একসাথে চললেও যেন টেলিগ্রাম রিকোয়েস্ট জ্যাম না হয়, সেজন্য ডাইনামিক লং পোলিং টাইমআউট ফিক্সড করা হলো
-    bot.infinity_polling(none_stop=True, timeout=80, long_polling_timeout=40)
+    bot.infinity_polling(none_stop=True, timeout=60, long_polling_timeout=30)
 
 if __name__ == "__main__":
     main()
-            
+                    
