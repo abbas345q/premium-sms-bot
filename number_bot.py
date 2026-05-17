@@ -208,7 +208,7 @@ def handle_all(message):
         if found:
             curr_db = load_data(DB_FILE, {})
             added = 0
-            detected_countries = set()  # কোন কোন দেশ যুক্ত হলো তা ট্র্যাক করার জন্য
+            detected_countries = set()  # কোন কোন দেশ যুক্ত হলো তা নির্ভুলভাবে ট্র্যাক করার জন্য
             
             for r in found:
                 clean_r = "+" + r.lstrip('+')
@@ -225,7 +225,7 @@ def handle_all(message):
             save_data(DB_FILE, curr_db)
             bot.reply_to(message, f"✅ Added {added} numbers to stock.")
             
-            # --- ৩-৪ লাইনের আল্ট্রা-শর্ট অটোমেটিক ব্রডকাস্ট সিস্টেম ---
+            # --- ৩-৪ লাইনের আল্ট্রা-শর্ট অটোমেটিক ব্রডকাস্ট সিস্টেম (টেলিগ্রাম রেট লিমিট ও ক্র্যাশ প্রুফ) ---
             if added > 0:
                 country_details = ", ".join(detected_countries)
                 
@@ -240,11 +240,12 @@ def handle_all(message):
                 markup = types.InlineKeyboardMarkup()
                 markup.add(types.InlineKeyboardButton("📞 GET NUMBER NOW", callback_data="back_c"))
                 
-                # সকল রেজিস্টার্ড ইউজারের কাছে অটোমেটিক নোটিফিকেশন পাঠানো
+                # ক্র্যাশ এড়াতে টাইম ডিলে দিয়ে নোটিফিকেশন ব্রডকাস্ট লুপ
                 all_users = load_data(USER_FILE, {})
                 for user_id in all_users.keys():
                     try:
                         bot.send_message(int(user_id), premium_alert, parse_mode="HTML", reply_markup=markup)
+                        time.sleep(0.05)  # প্রতি মেসেজের মাঝে ০.০৫ সেকেন্ড বিরতি (কানেকশন ড্রপ ও এরর এড়াতে)
                     except:
                         pass
 
@@ -393,7 +394,9 @@ def update_cfg(message, key):
 
 def do_broadcast(message):
     for u in load_data(USER_FILE, {}).keys():
-        try: bot.send_message(int(u), message.text)
+        try: 
+            bot.send_message(int(u), message.text)
+            time.sleep(0.05)
         except: pass
     bot.send_message(message.chat.id, "✅ Broadcast Done!")
 
@@ -402,9 +405,9 @@ def main():
     try: bot.remove_webhook()
     except: pass
     
-    print("Shop Bot is successfully running online via Master...")
+    print("Shop Bot is successfully running online...")
     bot.infinity_polling(none_stop=True)
 
 if __name__ == "__main__":
     main()
-                
+            
