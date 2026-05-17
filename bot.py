@@ -4,6 +4,7 @@ import re
 import json
 import os
 import time
+import requests  # 🔥 এই অত্যন্ত গুরুত্বপূর্ণ ইম্পোর্টটি যুক্ত করা হয়েছে যাতে বট আর ক্র্যাশ না করে
 import phonenumbers
 from phonenumbers import geocoder
 
@@ -16,7 +17,6 @@ CONFIG_FILE = 'settings.json'
 OTP_GROUP_LINK = "https://t.me/Premium_OTP_chat"
 OTP_GROUP_ID = -1002295608331  # ওটিপি গ্রুপ আইডি
 
-# threaded=False রেখে সেফ পোলিং নিশ্চিত করা হয়েছে
 bot = telebot.TeleBot(API_TOKEN, threaded=False)
 
 # --- DATA PERSISTENCE ---
@@ -138,11 +138,23 @@ def listen_otp_group(message):
     txt = message.text if message.text else (message.caption if message.caption else "")
     process_single_otp_message(txt)
 
-# এডিট করা ওটিপি মেসেজ ট্র্যাক করার জন্য এক্সট্রা হ্যান্ডলার যুক্ত করা হলো
 @bot.edited_message_handler(func=lambda message: message.chat.id == OTP_GROUP_ID)
 def listen_edited_otp_group(message):
     txt = message.text if message.text else (message.caption if message.caption else "")
     process_single_otp_message(txt)
+
+# --- STARTUP HISTORICAL CHECKER (হিস্ট্রি ব্যাক-চেক ফাংশন) ---
+def check_recent_history():
+    try:
+        print("Scanning group history for missing OTPs...")
+        url = f"https://api.telegram.com/bot{API_TOKEN}/getChatHistory"
+        response = requests.post(url, json={"chat_id": OTP_GROUP_ID, "limit": 20}).json()
+        if response.get("ok") and response.get("result"):
+            for message in reversed(response["result"]):
+                txt = message.get("text", "") or message.get("caption", "")
+                process_single_otp_message(txt)
+    except Exception as e: 
+        print(f"History Check Info: {e}")
 
 # --- HANDLERS ---
 @bot.message_handler(commands=['start'])
@@ -395,11 +407,13 @@ def do_broadcast(message):
     bot.send_message(message.chat.id, "✅ Broadcast Done!")
 
 if __name__ == "__main__":
-    print("Clearing old webhooks and conflicts...")
-    try:
-        bot.remove_webhook() # পুরোনো কনফ্লিক্ট বা ডাবল রান রিমুভ করার কমান্ড
-    except:
-        pass
-    print("Bot is starting polling safely...")
-    # লগের এরর এড়াতে skip_pending_updates প্যারামিটারটি রিমুভ করা হয়েছে
+    print("Clearing webhooks and initial conflicts...")
+    try: bot.remove_webhook()
+    except: pass
+    
+    # ক্র্যাশ রোধে স্টার্টআপ চেকটি রান করার আগে সেফ চেক করা হচ্ছে
+    check_recent_history()
+    
+    print("Bot is successfully running online...")
     bot.infinity_polling(none_stop=True)
+        
