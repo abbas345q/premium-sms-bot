@@ -7,7 +7,7 @@ import time
 import requests
 import phonenumbers
 from phonenumbers import geocoder
-import threading  # ব্যাকগ্রাউন্ডে প্যানেল ফাইলটি রান করার জন্য থ্রেডিং আর্কিটেকচার
+import threading
 
 # --- CONFIGURATION ---
 API_TOKEN = '7634786660:AAHvY09ndmYnO6pLpz_84rSLqGUEMlfwNd4'
@@ -18,18 +18,30 @@ CONFIG_FILE = 'settings.json'
 OTP_GROUP_LINK = "https://t.me/Premium_OTP_chat"
 OTP_GROUP_ID = -1002295608331
 
-# সেশন ডুপ্লিকেশন ও ৪MD৪ এরর এড়াতে থ্রেড মোড ফলস রাখা হলো
+# সেশন ডুপ্লিকেশন ও কন্টাক্ট এরর এড়াতে থ্রেড মোড ফলস রাখা হলো
 bot = telebot.TeleBot(API_TOKEN, threaded=False)
 
 def load_data(file, default):
+    # কোনো ফাইল ফাঁকা বা ড্যামেজ থাকলে তা স্বয়ংক্রিয়ভাবে ফিক্স করার মেকানিজম
     if os.path.exists(file):
         try:
-            with open(file, 'r', encoding='utf-8') as f: return json.load(f)
-        except: return default
+            if os.path.getsize(file) == 0: # ফাইলটি একদম খালি হলে
+                return default
+            with open(file, 'r', encoding='utf-8') as f: 
+                return json.load(f)
+        except (json.JSONDecodeError, Exception) as e:
+            print(f"⚠️ [Fixing File] {file} পুনর্গঠন করা হচ্ছে...")
+            with open(file, 'w', encoding='utf-8') as f:
+                json.dump(default, f, indent=4)
+            return default
     return default
 
 def save_data(file, data):
-    with open(file, 'w', encoding='utf-8') as f: json.dump(data, f, indent=4)
+    try:
+        with open(file, 'w', encoding='utf-8') as f: 
+            json.dump(data, f, indent=4)
+    except Exception as e:
+        print(f"❌ ডাটা সেভ করতে সমস্যা: {e}")
 
 config = load_data(CONFIG_FILE, {"ref_bonus": 2.0, "min_withdraw": 500.0, "channels": []})
 processed_otps = set()
@@ -78,50 +90,54 @@ def send_country_list(chat_id, message_id=None):
 
 def process_single_otp_message(txt):
     if not txt: return
-    clean_txt = re.sub(r'[\s\-\+\(\):,]', '', txt)
-    current_users = load_data(USER_FILE, {})
-    
-    for uid, u_info in current_users.items():
-        active_numbers = u_info.get("active_numbers", [])
-        if not active_numbers: continue
+    try:
+        clean_txt = re.sub(r'[\s\-\+\(\):,]', '', txt)
+        current_users = load_data(USER_FILE, {})
         
-        for num_obj in active_numbers:
-            clean_num = re.sub(r'\D', '', num_obj["number"])
-            if len(clean_num) < 4: continue
+        for uid, u_info in current_users.items():
+            if not isinstance(u_info, dict): continue
+            active_numbers = u_info.get("active_numbers", [])
+            if not active_numbers: continue
             
-            user_last_4 = clean_num[-4:]
-            if user_last_4 in clean_txt:
-                otp_match = re.search(r'(?:OTP|code|🔑|🧑‍💻|verification|sms)[:\s]*(\d+)', txt, re.IGNORECASE)
-                if otp_match:
-                    otp_code = otp_match.group(1)
-                else:
-                    all_digits = re.findall(r'\b\d{4,8}\b', txt)
-                    possible_codes = [d for d in all_digits if d not in clean_num]
-                    otp_code = possible_codes[0] if possible_codes else "Not Found"
+            for num_obj in active_numbers:
+                clean_num = re.sub(r'\D', '', num_obj["number"])
+                if len(clean_num) < 4: continue
+                
+                user_last_4 = clean_num[-4:]
+                if user_last_4 in clean_txt:
+                    otp_match = re.search(r'(?:OTP|code|🔑|🧑‍💻|verification|sms)[:\s]*(\d+)', txt, re.IGNORECASE)
+                    if otp_match:
+                        otp_code = otp_match.group(1)
+                    else:
+                        all_digits = re.findall(r'\b\d{4,8}\b', txt)
+                        possible_codes = [d for d in all_digits if d not in clean_num]
+                        otp_code = possible_codes[0] if possible_codes else "Not Found"
 
-                unique_key = f"{uid}_{user_last_4}_{otp_code}"
-                if unique_key in processed_otps: return
-                processed_otps.add(unique_key)
+                    unique_key = f"{uid}_{user_last_4}_{otp_code}"
+                    if unique_key in processed_otps: return
+                    processed_otps.add(unique_key)
 
-                service_name = "Unknown Service"
-                apps = ["Telegram", "WhatsApp", "Imo", "Facebook", "Google", "Viber", "Kakao", "TikTok", "WeChat", "Line", "Snapchat"]
-                for app in apps:
-                    if app.lower() in txt.lower():
-                        service_name = app
-                        break
+                    service_name = "Unknown Service"
+                    apps = ["Telegram", "WhatsApp", "Imo", "Facebook", "Google", "Viber", "Kakao", "TikTok", "WeChat", "Line", "Snapchat"]
+                    for app in apps:
+                        if app.lower() in txt.lower():
+                            service_name = app
+                            break
 
-                final_msg = (
-                    f"✨ **NEW OTP RECEIVED!**\n"
-                    f"━━━━━━━━━━━━━━━━━━\n"
-                    f"📱 **Service:** {service_name}\n"
-                    f"🔢 **Number:** `{num_obj['number']}`\n"
-                    f"🔑 **OTP Code:** `{otp_code}`\n"
-                    f"━━━━━━━━━━━━━━━━━━"
-                )
-                try:
-                    bot.send_message(int(uid), final_msg, parse_mode="Markdown")
-                except: pass
-                return
+                    final_msg = (
+                        f"✨ **NEW OTP RECEIVED!**\n"
+                        f"━━━━━━━━━━━━━━━━━━\n"
+                        f"📱 **Service:** {service_name}\n"
+                        f"🔢 **Number:** `{num_obj['number']}`\n"
+                        f"🔑 **OTP Code:** `{otp_code}`\n"
+                        f"━━━━━━━━━━━━━━━━━━"
+                    )
+                    try:
+                        bot.send_message(int(uid), final_msg, parse_mode="Markdown")
+                    except: pass
+                    return
+    except Exception as e:
+        print(f"⚠️ [Group Log Error] {e}")
 
 # মূল পোলিং হ্যান্ডেলার যা গ্রুপের ওটিপি মেসেজ ট্র্যাক করবে
 @bot.message_handler(func=lambda message: message.chat.id == OTP_GROUP_ID, content_types=['text', 'photo', 'document', 'location', 'contact'])
@@ -188,7 +204,7 @@ def handle_all(message):
     elif message.text == "💰 Balance":
         users = load_data(USER_FILE, {})
         u_data = users.get(uid, {"balance": 0.0})
-        bot.send_message(message.chat.id, f"💳 **Current Balance:** {u_data['balance']} BDT")
+        bot.send_message(message.chat.id, f"💳 **Current Balance:** {u_data.get('balance', 0.0)} BDT")
     elif message.text == "🎁 Refer & Earn":
         bot_user = (bot.get_me()).username
         bot.send_message(message.chat.id, f"🎁 **Refer Link:** https://t.me/{bot_user}?start={uid}")
@@ -244,7 +260,7 @@ def handle_query(call):
             
             users[uid]["active_numbers"] = []
             delivered_numbers = []
-            take_count = min(3, len(curr_db[country]))
+            take_count = min(2, len(curr_db[country]))
             for _ in range(take_count):
                 if curr_db[country]:
                     raw_num = str(curr_db[country].pop(0))
@@ -331,7 +347,7 @@ def handle_query(call):
         bot.edit_message_text("⚙️ **Manage Channels:**", chat_id, message_id, reply_markup=markup)
 
     elif call.data == "add_ch":
-        msg = msg = bot.send_message(chat_id, "Format: `@Username https://link`")
+        msg = bot.send_message(chat_id, "Format: `@Username https://link`")
         bot.register_next_step_handler(msg, process_add_ch)
 
     elif call.data.startswith("delch_"):
@@ -373,11 +389,9 @@ def do_broadcast(message):
         except: pass
     bot.send_message(message.chat.id, "✅ Broadcast Done!")
 
-# প্যানেল ফাইলের ব্যাকগ্রাউন্ড এক্সিকিউশন মেথড
 def run_panel_file():
     print("[Thread Manager] panel_number.py ব্যাকগ্রাউন্ডে সফলভাবে চালু হয়েছে...")
     try:
-        # যদি ফাইলটি একই ডিরেক্টরিতে থাকে তবে পাইথন প্রসেসের ভেতর থেকে এটি এক্সিকিউট হবে
         if os.path.exists("panel_number.py"):
             exec(open("panel_number.py", encoding="utf-8").read(), globals())
         else:
@@ -390,7 +404,6 @@ def main():
     try: bot.remove_webhook()
     except: pass
     
-    # Procfile এর ঝামেলা এড়াতে এখানেই থ্রেড তৈরি করে panel_number.py রান করানো হলো
     panel_thread = threading.Thread(target=run_panel_file, daemon=True)
     panel_thread.start()
     
@@ -399,4 +412,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-                    
+    
