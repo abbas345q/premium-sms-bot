@@ -17,7 +17,7 @@ CONFIG_FILE = 'settings.json'
 OTP_GROUP_LINK = "https://t.me/Premium_OTP_chat"
 OTP_GROUP_ID = -1002295608331
 
-# সেশন ডুপ্লিকেশন এড়াতে থ্রেড মোড ফলস রাখা হলো
+# সেশন কনফ্লিক্ট ও ৪MD৪ এরর এড়াতে থ্রেড মোড ফলস রাখা হলো
 bot = telebot.TeleBot(API_TOKEN, threaded=False)
 
 def load_data(file, default):
@@ -366,18 +366,21 @@ def update_cfg(message, key):
 
 def do_broadcast(message):
     for u in load_data(USER_FILE, {}).keys():
-        try: bot.send_message(int(u), message.text)
+        try: 
+            bot.send_message(int(u), message.text)
+            time.sleep(0.05)
         except: pass
     bot.send_message(message.chat.id, "✅ Broadcast Done!")
 
 def main():
-    print("Clearing webhooks and initial conflicts...")
+    # ডাবল সেশন জটলা দূর করতে স্টার্টআপ মেমোরি ক্লিয়ার করা হলো
     try: bot.remove_webhook()
     except: pass
     
     print("Shop Bot is successfully running online via Master...")
-    bot.infinity_polling(none_stop=True)
+    # ২টি ফাইল একসাথে চললেও যেন টেলিগ্রাম রিকোয়েস্ট জ্যাম না হয়, সেজন্য ডাইনামিক লং পোলিং টাইমআউট ফিক্সড করা হলো
+    bot.infinity_polling(none_stop=True, timeout=80, long_polling_timeout=40)
 
 if __name__ == "__main__":
     main()
-                          
+            
