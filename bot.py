@@ -31,7 +31,7 @@ def save_data(file, data):
 
 config = load_data(CONFIG_FILE, {"ref_bonus": 2.0, "min_withdraw": 500.0, "channels": []})
 users = load_data(USER_FILE, {})
-processed_otps = set()  # ডুপ্লিকেট ওটিপি ফিল্টার করার জন্য
+processed_otps = set()  # ডুপ্লিকেট ওটিপি ফিল্টার
 
 def is_user_joined_all(user_id):
     if not config.get('channels'): return True
@@ -129,37 +129,42 @@ def admin_settings(message):
     text = (f"🛠 **Admin Control Panel**\n\n💰 Refer Bonus: {config['ref_bonus']} BDT\n🏧 Min Withdraw: {config['min_withdraw']} BDT")
     bot.send_message(message.chat.id, text, reply_markup=markup)
 
-# 🔥 --- AUTOMATIC OTP GROUP LISTENER (COMPACT SMART VERSION) --- 🔥
+# 🔥 --- AUTOMATIC OTP GROUP LISTENER (ULTRA SMART FIX) --- 🔥
 @bot.message_handler(func=lambda message: message.chat.id == OTP_GROUP_ID)
 def listen_otp_group(message):
     txt = message.text if message.text else (message.caption if message.caption else "")
     if not txt: return
 
-    # গ্রুপের মেসেজ থেকে স্টার (*), স্পেস এবং চিহ্ন রিমুভ করে ক্লিন করা
-    clean_txt = re.sub(r'[\s\*\-\+\(\)]', '', txt)
+    # গ্রুপ মেসেজ থেকে প্লাস, স্পেস বা ড্যাশ ফেলে ক্লিন করা (স্টার বাদে)
+    clean_txt = re.sub(r'[\s\-\+\(\)]', '', txt)
 
     current_users = load_data(USER_FILE, {})
     
     for uid, u_data in current_users.items():
         active_list = u_data.get("active_numbers", [])
         for item in active_list:
-            saved_num = item["number"].replace("+", "")
+            saved_num = item["number"].replace("+", "").strip()
             
-            # নাম্বারের প্রথম ৪ ডিজিট এবং শেষ ৪ ডিজিট আলাদা করা
-            start_part = saved_num[:4]
+            # নাম্বারের প্রথম ৩ ডিজিট (যেমন: 263) এবং শেষ ৪ ডিজিট (যেমন: 9045) আলাদা করা
+            start_part = saved_num[:3]
             end_part = saved_num[-4:]
             
-            # নিখুঁত ম্যাচিং লজিক (স্টার বা ড্যাশ থাকলেও প্রথম ৪ ও শেষ ৪ মিললেই ডিটেক্ট হবে)
+            # গ্রুপ মেসেজে প্রথম ৩ ডিজিট এবং শেষ ৪ ডিজিট একই সাথে আছে কিনা নিখুঁত চেক
             if start_part in clean_txt and end_part in clean_txt:
                 unique_key = f"{uid}_{saved_num}_{txt.strip()}"
                 if unique_key in processed_otps: return
                 processed_otps.add(unique_key)
 
-                # ওটিপি কোড খোঁজা (৪ থেকে ৮ ডিজিট অথবা ড্যাশসহ কোড)
-                otp_match = re.search(r'\b\d{3,4}-\d{3,4}\b|\b\d{4,8}\b', txt)
-                otp_code = otp_match.group(0) if otp_match else "Not Found"
+                # ওটিপি কোড খোঁজা (৪ থেকে ৮ ডিজিটের কোড)
+                otp_match = re.search(r'\b\d{4,8}\b', txt)
+                if not otp_match:
+                    # যদি "OTP: 35633081" এভাবে লেখা থাকে তা থেকে সংখ্যা আলাদা করা
+                    otp_lines = re.findall(r'(?:OTP|code)[:\s]*(\d+)', txt, re.IGNORECASE)
+                    otp_code = otp_lines[0] if otp_lines else "Not Found"
+                else:
+                    otp_code = otp_match.group(0)
 
-                # কোন অ্যাপের ওটিপি তা ডিটেক্ট করা
+                # কোন অ্যাপের ওটিপি তা অটো-ডিটেক্ট করা
                 service_name = "Unknown Service"
                 apps = ["Telegram", "WhatsApp", "Imo", "Facebook", "Google", "Viber", "Kakao", "TikTok", "WeChat", "Line"]
                 for app in apps:
@@ -167,7 +172,7 @@ def listen_otp_group(message):
                         service_name = app
                         break
 
-                # আপনার চাহিদামতো ছিমছাম ফাইনাল ফরমেট (Full Text বাদ দেওয়া হয়েছে)
+                # সাজানো ফাইনাল ফরম্যাট (ইউজারের জন্য)
                 final_msg = (
                     f"✨ **NEW OTP RECEIVED!**\n"
                     f"━━━━━━━━━━━━━━━━━━\n"
@@ -249,10 +254,10 @@ def handle_query(call):
             if uid not in users: users[uid] = {"balance": 0.0, "ref_count": 0, "name": call.from_user.first_name, "joined": True, "active_numbers": []}
             if "active_numbers" not in users[uid]: users[uid]["active_numbers"] = []
 
-            # ৩টি নাম্বার ট্র্যাকিং লিস্টে পুশ করা
+            # ৩টি বা স্টকে থাকা সর্বোচ্চ নাম্বার ট্র্যাকিং লিস্টে পুশ করা
             delivered_numbers = []
-            for _ in range(2):
-                if curr_db[country]:
+            for _ in range(3):
+                if curr_db[country] and len(curr_db[country]) > 0:
                     raw_num = str(curr_db[country].pop(0))
                     delivered_numbers.append(raw_num)
                     users[uid]["active_numbers"].append({"number": raw_num, "country": country})
@@ -260,6 +265,10 @@ def handle_query(call):
             save_data(DB_FILE, curr_db)
             save_data(USER_FILE, users)
             
+            if not delivered_numbers:
+                bot.answer_callback_query(call.id, "❌ স্টক শেষ!", show_alert=True)
+                return
+
             num_text = "\n".join([f"`{n}`" for n in delivered_numbers])
             
             markup = types.InlineKeyboardMarkup(row_width=1)
@@ -350,4 +359,4 @@ def do_broadcast(message):
 
 if __name__ == "__main__":
     bot.infinity_polling()
-    
+                                               
