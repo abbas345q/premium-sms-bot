@@ -78,11 +78,11 @@ def send_country_list(chat_id, message_id=None):
             bot.send_message(chat_id, txt, reply_markup=markup)
     except: pass
 
-# --- 🔥 CORE LOGIC: ADVANCED FULL-TEXT OTP ENGINE 🔥 ---
+# --- CORE LOGIC: ADVANCED FULL-TEXT OTP ENGINE ---
 def process_single_otp_message(txt):
     if not txt: return
     
-    # সম্পূর্ণ মেসেজের টেক্সট থেকে স্পেস ও ড্যাশ মুছে ক্লিন সংখ্যা বের করা (যাতে ম্যাচিং মিস না হয়)
+    # সম্পূর্ণ মেসেজের টেক্সট থেকে স্পেস ও ড্যাশ মুছে ক্লিন সংখ্যা বের করা
     clean_txt = re.sub(r'[\s\-\+\(\):,]', '', txt)
     
     current_users = load_data(USER_FILE, {})
@@ -92,27 +92,24 @@ def process_single_otp_message(txt):
         if not active_numbers: continue
         
         for num_obj in active_numbers:
-            # ইউজারের কেনা নাম্বারটি ক্লিন করা
             clean_num = re.sub(r'\D', '', num_obj["number"])
             if len(clean_num) < 4: continue
             
-            user_last_4 = clean_num[-4:] # নাম্বারের শেষ ৪ ডিজিট
+            user_last_4 = clean_num[-4:]
             
-            # 🎯 কন্ডিশন: ক্লিন করা মেসেজের যেকোনো জায়গায় যদি ইউজারের শেষ ৪ ডিজিট থাকে
+            # ক্লিন করা মেসেজের যেকোনো জায়গায় যদি ইউজারের শেষ ৪ ডিজিট থাকে
             if user_last_4 in clean_txt:
                 
-                # ১. প্রথমে নির্দিষ্ট কিওয়ার্ড দিয়ে ওটিপি খোঁজার চেষ্টা
+                # ওটিপি কোড এক্সট্রাক্ট লজিক
                 otp_match = re.search(r'(?:OTP|code|🔑|🧑‍💻|verification)[:\s]*(\d+)', txt, re.IGNORECASE)
                 if otp_match:
                     otp_code = otp_match.group(1)
                 else:
-                    # ২. কিওয়ার্ড না মিললে মেসেজ থেকে ৪ থেকে ৮ ডিজিটের অন্যান্য সংখ্যাগুলো আলাদা করা
                     all_digits = re.findall(r'\b\d{4,8}\b', txt)
-                    # ফোন নাম্বারের অংশ বাদ দিয়ে যা থাকবে তাই ওটিপি কোড
                     possible_codes = [d for d in all_digits if d not in clean_num]
                     otp_code = possible_codes[0] if possible_codes else "Not Found"
 
-                # ডুপ্লিকেট লক প্রোটেকশন
+                # ডুপ্লিকেট প্রোটেকশন লক
                 unique_key = f"{uid}_{user_last_4}_{otp_code}"
                 if unique_key in processed_otps: return
                 processed_otps.add(unique_key)
@@ -138,13 +135,15 @@ def process_single_otp_message(txt):
                 except: pass
                 return
 
-# --- AUTOMATIC OTP GROUP LISTENER ---
-@bot.message_handler(func=lambda message: message.chat.id == OTP_GROUP_ID)
+# --- AUTOMATIC OTP GROUP LISTENER (UNIVERSAL CONTENT TYPE & REPLIES) ---
+# এখানে content_types=['text'] এর সাথে সব ধরনের ইনলাইন বাটন বা ক্যাপশনযুক্ত মেসেজও রিড করার পারমিশন দেওয়া হলো
+@bot.message_handler(func=lambda message: message.chat.id == OTP_GROUP_ID, content_types=['text', 'photo', 'document', 'location', 'contact'])
 def listen_otp_group(message):
     txt = message.text if message.text else (message.caption if message.caption else "")
     process_single_otp_message(txt)
 
-@bot.edited_message_handler(func=lambda message: message.chat.id == OTP_GROUP_ID)
+# ইনলাইন বাটনসহ মেসেজ এডিট হলেও যেন এই এডিটেড মেসেজ হ্যান্ডলার সচল থাকে তা নিশ্চিত করা হলো
+@bot.edited_message_handler(func=lambda message: message.chat.id == OTP_GROUP_ID, content_types=['text', 'photo', 'document', 'location', 'contact'])
 def listen_edited_otp_group(message):
     txt = message.text if message.text else (message.caption if message.caption else "")
     process_single_otp_message(txt)
@@ -278,7 +277,7 @@ def handle_query(call):
             users[uid]["active_numbers"] = []
 
             delivered_numbers = []
-            take_count = min(3, len(curr_db[country]))
+            take_count = min(2, len(curr_db[country]))
             for _ in range(take_count):
                 if curr_db[country]:
                     raw_num = str(curr_db[country].pop(0))
@@ -421,4 +420,4 @@ if __name__ == "__main__":
     
     print("Bot is successfully running online...")
     bot.infinity_polling(none_stop=True)
-            
+    
