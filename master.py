@@ -31,19 +31,19 @@ def run_panel(file_path):
 if __name__ == "__main__":
     send_update("🤖 <b>Central Master Bot Online!</b>\nপ্যানেলগুলো চেক করা হচ্ছে...")
     
-    # 'panel_' দিয়ে শুরু হওয়া সব ফাইল খুঁজে বের করবে
-    panel_files = [f for f in os.listdir('.') if f.startswith('panel_') and f.endswith('.py')]
+    # আপনার নতুন ফাইলের নাম সহ লিস্ট ডিফাইন করা হলো
+    panel_files = ["number_bot.py", "panel_number.py"]
     
-    if not panel_files:
-        send_update("⚠️ কোনো প্যানেল ফাইল (panel_*.py) পাওয়া যায়নি!")
-    else:
-        for file in panel_files:
+    for file in panel_files:
+        if os.path.exists(file):
             t = threading.Thread(target=run_panel, args=(file,))
             t.daemon = True
             t.start()
             time.sleep(2) # সার্ভার লোড কমাতে গ্যাপ
+        else:
+            send_update(f"⚠️ ফাইল পাওয়া যায়নি: {file}")
         
-        # বটকে সচল রাখা
-        while True:
-            time.sleep(10)
-          
+    # বটকে সচল রাখা
+    while True:
+        time.sleep(10)
+        
