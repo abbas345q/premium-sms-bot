@@ -16,6 +16,7 @@ CONFIG_FILE = 'settings.json'
 OTP_GROUP_LINK = "https://t.me/Premium_OTP_chat"
 OTP_GROUP_ID = -1002295608331  # ওটিপি গ্রুপ আইডি
 
+# threaded=False রেখে সেফ পোলিং নিশ্চিত করা হয়েছে
 bot = telebot.TeleBot(API_TOKEN, threaded=False)
 
 # --- DATA PERSISTENCE ---
@@ -99,7 +100,7 @@ def process_single_otp_message(txt):
             user_last_4 = clean_num[-4:]
             
             if group_last_4 == user_last_4 or user_last_4 in group_last_4:
-                otp_match = re.search(r'(?:OTP|code|🧑‍💻)[:\s]*(\d+)', txt, re.IGNORECASE)
+                otp_match = re.search(r'(?:OTP|code|🔑|🧑‍💻)[:\s]*(\d+)', txt, re.IGNORECASE)
                 if otp_match:
                     otp_code = otp_match.group(1)
                 else:
@@ -112,7 +113,7 @@ def process_single_otp_message(txt):
                 processed_otps.add(unique_key)
 
                 service_name = "Unknown Service"
-                apps = ["Telegram", "WhatsApp", "Imo", "Facebook", "Google", "Viber", "Kakao", "TikTok", "WeChat", "Line"]
+                apps = ["Telegram", "WhatsApp", "Imo", "Facebook", "Google", "Viber", "Kakao", "TikTok", "WeChat", "Line", "Snapchat"]
                 for app in apps:
                     if app.lower() in txt.lower():
                         service_name = app
@@ -137,17 +138,11 @@ def listen_otp_group(message):
     txt = message.text if message.text else (message.caption if message.caption else "")
     process_single_otp_message(txt)
 
-# --- STARTUP HISTORICAL CHECKER ---
-def check_recent_history():
-    try:
-        print("Scanning group history for missing OTPs...")
-        url = f"https://api.telegram.com/bot{API_TOKEN}/getChatHistory"
-        response = requests.post(url, json={"chat_id": OTP_GROUP_ID, "limit": 20}).json()
-        if response.get("ok") and response.get("result"):
-            for message in reversed(response["result"]):
-                txt = message.get("text", "") or message.get("caption", "")
-                process_single_otp_message(txt)
-    except: pass
+# এডিট করা ওটিপি মেসেজ ট্র্যাক করার জন্য এক্সট্রা হ্যান্ডলার যুক্ত করা হলো
+@bot.edited_message_handler(func=lambda message: message.chat.id == OTP_GROUP_ID)
+def listen_edited_otp_group(message):
+    txt = message.text if message.text else (message.caption if message.caption else "")
+    process_single_otp_message(txt)
 
 # --- HANDLERS ---
 @bot.message_handler(commands=['start'])
@@ -187,7 +182,7 @@ def admin_settings(message):
         types.InlineKeyboardButton("💵 Set Refer Bonus", callback_data="conf_ref"),
         types.InlineKeyboardButton("🏧 Set Min Withdraw", callback_data="conf_with"),
         types.InlineKeyboardButton("⚙️ Manage Channels", callback_data="conf_chan"),
-        types.InlineKeyboardButton("📊 Export Available Stock", callback_data="conf_export"), # নতুন যুক্ত করা বাটন
+        types.InlineKeyboardButton("📊 Export Available Stock", callback_data="conf_export"),
         types.InlineKeyboardButton("🗑️ Clear Stock", callback_data="conf_clear"),
         types.InlineKeyboardButton("📢 Broadcast Message", callback_data="conf_bc")
     )
@@ -294,7 +289,7 @@ def handle_query(call):
     elif call.data == "back_c":
         send_country_list(chat_id, message_id)
 
-    elif call.data == "conf_export": # এক্সপোর্ট বাটনের ব্যাকএন্ড প্রসেসিং লজিক
+    elif call.data == "conf_export":
         if int(uid) != ADMIN_ID: return
         curr_db = load_data(DB_FILE, {})
         active_stock = {k: v for k, v in curr_db.items() if v and len(v) > 0}
@@ -400,8 +395,11 @@ def do_broadcast(message):
     bot.send_message(message.chat.id, "✅ Broadcast Done!")
 
 if __name__ == "__main__":
-    import requests
-    check_recent_history()
-    print("Bot is starting polling with advanced tracking loop...")
+    print("Clearing old webhooks and conflicts...")
+    try:
+        bot.remove_webhook() # পুরোনো কনফ্লিক্ট বা ডাবল রান রিমুভ করার কমান্ড
+    except:
+        pass
+    print("Bot is starting polling safely...")
+    # লগের এরর এড়াতে skip_pending_updates প্যারামিটারটি রিমুভ করা হয়েছে
     bot.infinity_polling(none_stop=True)
-            
