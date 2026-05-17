@@ -11,13 +11,13 @@ API_TOKEN = '7634786660:AAHvY09ndmYnO6pLpz_84rSLqGUEMlfwNd4'
 ADMIN_ID = 6781949890
 OTP_GROUP_LINK = "https://t.me/Premium_OTP_chat"
 OTP_GROUP_ID = -1002295608331
-STORAGE_CHANNEL_ID = -1003939878812  # আপনার নতুন ব্যাকআপ চ্যানেল
+STORAGE_CHANNEL_ID = -1003939878812  # ক্লাউড স্টোরেজ চ্যানেল আইডি
 
 bot = telebot.TeleBot(API_TOKEN, threaded=False)
 processed_otps = set()
 admin_states = {}  # অ্যাডমিন ইনপুট ট্র্যাকিং
 
-# --- 📁 TXT BASED CLOUD STORAGE ENGINE (মোবাইলে সরাসরি ওপেন হবে) ---
+# --- 📁 TXT BASED CLOUD STORAGE ENGINE ---
 def get_cloud_stock():
     """চ্যানেল থেকে স্টক টেক্সট ফাইল ডাউনলোড করে নাম্বারের লিস্ট রিড করার মেথড"""
     try:
@@ -29,7 +29,6 @@ def get_cloud_stock():
                     f_info = bot.get_file(msg["document"]["file_id"])
                     content = bot.download_file(f_info.file_path).decode('utf-8')
                     
-                    # টেক্সট ডাটাকে বটের প্রসেসযোগ্য ফরম্যাটে নেওয়া
                     stock_db = {}
                     current_country = None
                     for line in content.split('\n'):
@@ -82,7 +81,7 @@ def get_cloud_users():
                 if msg.get("document") and msg["document"]["file_name"] == "USERS_DATA.txt":
                     f_info = bot.get_file(msg["document"]["file_id"])
                     content = bot.download_file(f_info.file_path).decode('utf-8')
-                    return eval(content)  # রিড ইউজার ডিকশনারি
+                    return eval(content)
     except: pass
     return {}
 
@@ -151,10 +150,15 @@ def detect_country_flag(num_str):
 
 def send_country_list(chat_id, message_id=None):
     stock = get_cloud_stock()
-    active = {k: v for k, v in stock.items() if v and len(v) > 0}
+    active = {k: v for k, v in stock.items() if v and len(v) >= 3}
     if not active:
-        bot.send_message(chat_id, "❌ **No stock available right now.**")
+        if message_id:
+            try: bot.edit_message_text("❌ **No stock available right now (Minimum 3 numbers required).**", chat_id, message_id)
+            except: pass
+        else:
+            bot.send_message(chat_id, "❌ **No stock available right now (Minimum 3 numbers required).**")
         return
+    
     markup = types.InlineKeyboardMarkup(row_width=1)
     for c in sorted(active.keys()):
         markup.add(types.InlineKeyboardButton(f"{c} ({len(active[c])})", callback_data=f"buy_{c}"))
@@ -163,16 +167,17 @@ def send_country_list(chat_id, message_id=None):
     if message_id:
         try: bot.edit_message_text(txt, chat_id, message_id, reply_markup=markup)
         except: pass
-    else: bot.send_message(chat_id, txt, reply_markup=markup)
+    else: 
+        bot.send_message(chat_id, txt, reply_markup=markup)
 
-# --- 🚀 ADVANCED FORWARDING ENGINE (মনের মতো শক্তিশালী লজিক) ---
+# --- 🚀 ADVANCED FORWARDING ENGINE ---
 def process_single_otp_message(txt):
     if not txt: return
     num_parts = re.findall(r'\d+', txt)
     if not num_parts: return
     
     group_last_4 = num_parts[-1][-4:] if len(num_parts[-1]) >= 4 else num_parts[-1]
-    if len(group_last_4) < 3: return # সেফটি চেক
+    if len(group_last_4) < 3: return
 
     users = get_cloud_users()
     for uid, info in users.items():
@@ -181,7 +186,6 @@ def process_single_otp_message(txt):
             clean_num = re.sub(r'\D', '', num_obj["number"])
             user_last_4 = clean_num[-4:]
             
-            # 🔥 রিয়েল-টাইম লাস্ট ৪ ডিজিট ম্যাচিং টেস্ট 🔥
             if group_last_4 in user_last_4 or user_last_4 in group_last_4:
                 otp_match = re.search(r'(?:OTP|code|🧑‍💻)[:\s]*(\d+)', txt, re.IGNORECASE)
                 if otp_match: otp_code = otp_match.group(1)
@@ -238,7 +242,8 @@ def admin_settings(message):
         types.InlineKeyboardButton("💰 Set Refer", callback_data="set_ref"),
         types.InlineKeyboardButton("🏧 Set Min Withdraw", callback_data="set_wit"),
         types.InlineKeyboardButton("📢 Channels", callback_data="manage_ch"),
-        types.InlineKeyboardButton("🗑️ Clear Stock", callback_data="clear_stk")
+        types.InlineKeyboardButton("🗑️ Clear Stock", callback_data="clear_stk"),
+        types.InlineKeyboardButton("📢 Broadcast Msg", callback_data="broadcast_msg")
     )
     bot.send_message(message.chat.id, f"🛠 **Admin Panel**\n\nRefer Bonus: {cfg['ref_bonus']} BDT\nMin Withdraw: {cfg['min_withdraw']} BDT", reply_markup=markup)
 
@@ -259,41 +264,66 @@ def handle_all(message):
         bot.send_message(message.chat.id, f"💳 Balance: {users.get(uid, {}).get('balance', 0.0)} BDT")
     elif message.text == "🌍 Available Countries":
         stock = get_cloud_stock()
-        active = [f"✅ {k} ({len(v)})" for k, v in stock.items() if v]
-        bot.send_message(message.chat.id, "🌍 Stock List:\n\n" + "\n".join(active) if active else "❌ Empty")
+        active = [f"✅ {k} ({len(v)})" for k, v in stock.items() if v and len(v) >= 3]
+        bot.send_message(message.chat.id, "🌍 Stock List:\n\n" + "\n".join(active) if active else "❌ Stock Empty")
     
-    # 📝 এডমিন ফাইল আপলোড সিস্টেম
+    # 📝 এডমিন ফাইল আপলোড ও নাম্বার ফিল্টারিং সিস্টেম (যেকোনো টেক্সট ফাইল সাপোর্ট করবে)
     elif int(message.from_user.id) == ADMIN_ID and message.content_type == 'document':
         f_info = bot.get_file(message.document.file_id)
         txt = bot.download_file(f_info.file_path).decode('utf-8')
-        found = re.findall(r'\d{7,16}', txt)
+        
+        # ফাইল থেকে যেকোনো জায়গায় থাকা সমস্ত বৈধ নাম্বার খুঁজে বের করার রেগুলার এক্সপ্রেশন লজিক
+        found = re.findall(r'\+?\d{9,15}', txt)
         if found:
             stock = get_cloud_stock()
             added = 0
             for r in found:
-                flag = detect_country_flag(r)
-                try: name = geocoder.description_for_number(phonenumbers.parse(f"+{r.lstrip('+')}"), "en")
-                except: name = "Zone"
+                clean_num = "+" + r.lstrip('+')
+                flag = detect_country_flag(clean_num)
+                try: 
+                    name = geocoder.description_for_number(phonenumbers.parse(clean_num), "en")
+                except: 
+                    name = "Zone"
+                
                 c_name = f"{flag} {name}"
                 if c_name not in stock: stock[c_name] = []
-                num = f"+{r.lstrip('+')}"
-                if num not in stock[c_name]:
-                    stock[c_name].append(num)
+                if clean_num not in stock[c_name]:
+                    stock[c_name].append(clean_num)
                     added += 1
+            
             save_cloud_stock(stock)
-            bot.reply_to(message, f"✅ Successfully loaded and backed up {added} numbers to TXT Cloud Database.")
+            bot.reply_to(message, f"✅ Successfully parsed and added {added} numbers to Live Stock File!")
+        else:
+            bot.reply_to(message, "❌ No valid numbers found inside the uploaded file.")
 
-    # ⚙️ অ্যাডমিন স্টেট প্রসেসিং
+    # ⚙️ অ্যাডমিন স্টেট প্রসেসিং (ইনপুট হ্যান্ডলার)
     elif int(message.from_user.id) == ADMIN_ID and uid in admin_states:
         state = admin_states.pop(uid)
         cfg = get_settings()
+        
         if state == "ref":
-            cfg["ref_bonus"] = float(message.text)
-            bot.send_message(message.chat.id, "✅ Refer bonus updated!")
+            try:
+                cfg["ref_bonus"] = float(message.text)
+                save_settings(cfg)
+                bot.send_message(message.chat.id, "✅ Refer bonus updated successfully!")
+            except: bot.send_message(message.chat.id, "❌ Invalid Amount.")
+            
         elif state == "wit":
-            cfg["min_withdraw"] = float(message.text)
-            bot.send_message(message.chat.id, "✅ Min withdraw updated!")
-        save_settings(cfg)
+            try:
+                cfg["min_withdraw"] = float(message.text)
+                save_settings(cfg)
+                bot.send_message(message.chat.id, "✅ Min withdraw updated successfully!")
+            except: bot.send_message(message.chat.id, "❌ Invalid Amount.")
+            
+        elif state == "broadcast":
+            users = get_cloud_users()
+            count = 0
+            for u in users.keys():
+                try:
+                    bot.send_message(int(u), f"📢 **ADMIN BROADCAST**\n\n{message.text}", parse_mode="Markdown")
+                    count += 1
+                except: pass
+            bot.send_message(message.chat.id, f"✅ Broadcast finished. Sent to {count} users.")
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
@@ -310,12 +340,18 @@ def handle_query(call):
     elif call.data == "set_ref":
         admin_states[uid] = "ref"
         bot.send_message(chat_id, "✍️ Enter new refer bonus amount:")
+        bot.answer_callback_query(call.id)
     elif call.data == "set_wit":
         admin_states[uid] = "wit"
         bot.send_message(chat_id, "✍️ Enter new min withdraw amount:")
+        bot.answer_callback_query(call.id)
     elif call.data == "clear_stk":
         save_cloud_stock({})
         bot.answer_callback_query(call.id, "🗑️ Stock completely cleared!", show_alert=True)
+    elif call.data == "broadcast_msg":
+        admin_states[uid] = "broadcast"
+        bot.send_message(chat_id, "✍️ Send the message you want to broadcast to all users:")
+        bot.answer_callback_query(call.id)
 
     elif call.data.startswith('buy_'):
         country = call.data.replace('buy_', '')
@@ -325,15 +361,13 @@ def handle_query(call):
             users = get_cloud_users()
             if uid not in users: users[uid] = {"balance": 0.0, "ref_count": 0, "name": call.from_user.first_name, "active_numbers": []}
             
-            # 🔄 ডিলিট অ্যান্ড পুশ: মূল স্টক টেক্সট ফাইল থেকে নাম্বার চিরতরে রিমুভ করে ইউজারের আন্ডারে দেওয়া
             delivered = []
             for _ in range(3):
                 if stock[country]:
-                    delivered.append(stock[country].pop(0)) # পপ করে রিমুভ করা হলো
+                    delivered.append(stock[country].pop(0)) # অটোমেটিক স্টক ফাইল থেকে ডিলিট
             
             users[uid]["active_numbers"] = [{"number": n, "country": country} for n in delivered]
             
-            # ক্লাউড ফাইলে রাইট ব্যাক (একই সাথে আপডেট)
             save_cloud_stock(stock)
             save_cloud_users(users)
 
@@ -351,4 +385,4 @@ def handle_query(call):
 if __name__ == "__main__":
     print("Railway formatted openable-database sync bot is active...")
     bot.infinity_polling(none_stop=True)
-    
+            
