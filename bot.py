@@ -1,9 +1,7 @@
 import telebot
 from telebot import types
 import re
-import json
 import os
-import time
 import requests
 import phonenumbers
 from phonenumbers import geocoder
@@ -13,62 +11,126 @@ API_TOKEN = '7634786660:AAHvY09ndmYnO6pLpz_84rSLqGUEMlfwNd4'
 ADMIN_ID = 6781949890
 OTP_GROUP_LINK = "https://t.me/Premium_OTP_chat"
 OTP_GROUP_ID = -1002295608331
-
-# 📢 আপনার নতুন দেওয়া সিক্রেট ব্যাকআপ চ্যানেল আইডি (১০০% কনফিগারড)
-STORAGE_CHANNEL_ID = -1003939878812  
+STORAGE_CHANNEL_ID = -1003939878812  # আপনার নতুন ব্যাকআপ চ্যানেল
 
 bot = telebot.TeleBot(API_TOKEN, threaded=False)
 processed_otps = set()
+admin_states = {}  # অ্যাডমিন ইনপুট ট্র্যাকিং
 
-# --- CLOUD TELEGRAM STORAGE ENGINE ---
-def get_cloud_data(filename, default):
-    """টেলিগ্রাম ক্লাউড চ্যানেল থেকে ডাটাবেজ ফাইল রিড করার মেথড"""
+# --- 📁 TXT BASED CLOUD STORAGE ENGINE (মোবাইলে সরাসরি ওপেন হবে) ---
+def get_cloud_stock():
+    """চ্যানেল থেকে স্টক টেক্সট ফাইল ডাউনলোড করে নাম্বারের লিস্ট রিড করার মেথড"""
     try:
         url = f"https://api.telegram.com/bot{API_TOKEN}/getChatHistory"
-        response = requests.post(url, json={"chat_id": STORAGE_CHANNEL_ID, "limit": 50}).json()
+        response = requests.post(url, json={"chat_id": STORAGE_CHANNEL_ID, "limit": 20}).json()
         if response.get("ok") and response.get("result"):
             for msg in response["result"]:
-                if msg.get("document") and msg["document"]["file_name"] == filename:
+                if msg.get("document") and msg["document"]["file_name"] == "ACTIVE_STOCK.txt":
                     f_info = bot.get_file(msg["document"]["file_id"])
-                    content = bot.download_file(f_info.file_path)
-                    return json.loads(content.decode('utf-8'))
+                    content = bot.download_file(f_info.file_path).decode('utf-8')
+                    
+                    # টেক্সট ডাটাকে বটের প্রসেসযোগ্য ফরম্যাটে নেওয়া
+                    stock_db = {}
+                    current_country = None
+                    for line in content.split('\n'):
+                        line = line.strip()
+                        if not line: continue
+                        if line.startswith('[') and line.endswith(']'):
+                            current_country = line[1:-1]
+                            stock_db[current_country] = []
+                        elif current_country and line.startswith('+'):
+                            stock_db[current_country].append(line)
+                    return stock_db
     except Exception as e:
-        print(f"Cloud Read Error for {filename}: {e}")
-    return default
+        print(f"Stock Read Error: {e}")
+    return {}
 
-def save_cloud_data(filename, data):
-    """টেলিগ্রাম ক্লাউড চ্যানেলে ডাটাবেজ ফাইল রাইট/আপডেট করার মেথড"""
+def save_cloud_stock(stock_db):
+    """স্টক ডেটাকে সুন্দর ফরম্যাটেড টেক্সট ফাইল বানিয়ে চ্যানেলে পুশ করার মেথড"""
     try:
+        filename = "ACTIVE_STOCK.txt"
         with open(filename, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=4)
-        
-        # চ্যানেলে থাকা পুরনো ব্যাকআপ ফাইলটি ডিলিট করা (মেমোরি ক্লিন রাখার জন্য)
+            for country, numbers in stock_db.items():
+                if numbers:
+                    f.write(f"[{country}]\n")
+                    for num in numbers:
+                        f.write(f"{num}\n")
+                    f.write("\n")
+                    
+        # ওল্ড ফাইল ক্লিনআপ
         try:
-            res = requests.post(f"https://api.telegram.com/bot{API_TOKEN}/getChatHistory", json={"chat_id": STORAGE_CHANNEL_ID, "limit": 20}).json()
+            res = requests.post(f"https://api.telegram.com/bot{API_TOKEN}/getChatHistory", json={"chat_id": STORAGE_CHANNEL_ID, "limit": 10}).json()
             if res.get("ok") and res.get("result"):
                 for m in res["result"]:
                     if m.get("document") and m["document"]["file_name"] == filename:
                         bot.delete_message(STORAGE_CHANNEL_ID, m["message_id"])
-        except:
-            pass
-            
-        with open(filename, 'rb') as f:
-            bot.send_document(STORAGE_CHANNEL_ID, f, caption=f"🔄 Cloud Database Auto-Synced: {filename}")
-        
-        # লোকাল স্পেস ক্লিন রাখা
-        if os.path.exists(filename):
-            os.remove(filename)
-    except Exception as e:
-        print(f"Cloud Save Error for {filename}: {e}")
+        except: pass
 
-# --- CHANNEL MEMBERSHIP CHECK ---
-def is_user_joined_all(user_id):
-    config = get_cloud_data('settings.json', {"ref_bonus": 2.0, "min_withdraw": 500.0, "channels": []})
-    if not config.get('channels'): return True
-    for ch in config['channels']:
+        with open(filename, 'rb') as f:
+            bot.send_document(STORAGE_CHANNEL_ID, f, caption="📊 Current Live Stock File (Open to view numbers)")
+        if os.path.exists(filename): os.remove(filename)
+    except Exception as e:
+        print(f"Stock Save Error: {e}")
+
+# --- 👤 USER SESSION CLOUD SYSTEM ---
+def get_cloud_users():
+    try:
+        url = f"https://api.telegram.com/bot{API_TOKEN}/getChatHistory"
+        response = requests.post(url, json={"chat_id": STORAGE_CHANNEL_ID, "limit": 20}).json()
+        if response.get("ok") and response.get("result"):
+            for msg in response["result"]:
+                if msg.get("document") and msg["document"]["file_name"] == "USERS_DATA.txt":
+                    f_info = bot.get_file(msg["document"]["file_id"])
+                    content = bot.download_file(f_info.file_path).decode('utf-8')
+                    return eval(content)  # রিড ইউজার ডিকশনারি
+    except: pass
+    return {}
+
+def save_cloud_users(users_data):
+    try:
+        filename = "USERS_DATA.txt"
+        with open(filename, 'w', encoding='utf-8') as f:
+            f.write(str(users_data))
         try:
-            member = bot.get_chat_member(ch['username'], user_id)
-            if member.status not in ['member', 'administrator', 'creator']: return False
+            res = requests.post(f"https://api.telegram.com/bot{API_TOKEN}/getChatHistory", json={"chat_id": STORAGE_CHANNEL_ID, "limit": 10}).json()
+            if res.get("ok") and res.get("result"):
+                for m in res["result"]:
+                    if m.get("document") and m["document"]["file_name"] == filename:
+                        bot.delete_message(STORAGE_CHANNEL_ID, m["message_id"])
+        except: pass
+        with open(filename, 'rb') as f:
+            bot.send_document(STORAGE_CHANNEL_ID, f, caption="👥 Users Database Sync")
+        if os.path.exists(filename): os.remove(filename)
+    except: pass
+
+# --- ⚙️ SETTINGS SYSTEM ---
+def get_settings():
+    try:
+        url = f"https://api.telegram.com/bot{API_TOKEN}/getChatHistory"
+        response = requests.post(url, json={"chat_id": STORAGE_CHANNEL_ID, "limit": 20}).json()
+        if response.get("ok") and response.get("result"):
+            for msg in response["result"]:
+                if msg.get("document") and msg["document"]["file_name"] == "SETTINGS.txt":
+                    f_info = bot.get_file(msg["document"]["file_id"])
+                    return eval(bot.download_file(f_info.file_path).decode('utf-8'))
+    except: pass
+    return {"ref_bonus": 2.0, "min_withdraw": 500.0, "channels": []}
+
+def save_settings(data):
+    try:
+        filename = "SETTINGS.txt"
+        with open(filename, 'w', encoding='utf-8') as f: f.write(str(data))
+        with open(filename, 'rb') as f: bot.send_document(STORAGE_CHANNEL_ID, f)
+        if os.path.exists(filename): os.remove(filename)
+    except: pass
+
+def is_user_joined_all(user_id):
+    cfg = get_settings()
+    if not cfg.get('channels'): return True
+    for ch in cfg['channels']:
+        try:
+            m = bot.get_chat_member(ch['username'], user_id)
+            if m.status not in ['member', 'administrator', 'creator']: return False
         except: return False
     return True
 
@@ -82,167 +144,156 @@ def main_keyboard():
 
 def detect_country_flag(num_str):
     try:
-        full_num = f"+{num_str.lstrip('+')}"
-        parsed = phonenumbers.parse(full_num)
-        region = phonenumbers.region_code_for_number(parsed)
-        return "".join(chr(ord(c) + 127397) for c in region.upper()) if region else "📍"
+        parsed = phonenumbers.parse(f"+{num_str.lstrip('+')}")
+        reg = phonenumbers.region_code_for_number(parsed)
+        return "".join(chr(ord(c) + 127397) for c in reg.upper()) if reg else "📍"
     except: return "📍"
 
 def send_country_list(chat_id, message_id=None):
-    curr_db = get_cloud_data('numbers_db.json', {})
-    active = {k: v for k, v in curr_db.items() if isinstance(v, list) and len(v) > 0}
+    stock = get_cloud_stock()
+    active = {k: v for k, v in stock.items() if v and len(v) > 0}
     if not active:
         bot.send_message(chat_id, "❌ **No stock available right now.**")
         return
     markup = types.InlineKeyboardMarkup(row_width=1)
     for c in sorted(active.keys()):
-        markup.add(types.InlineKeyboardButton(f"{c} ({len(active[c])})", callback_data=f"sel_{c}"))
+        markup.add(types.InlineKeyboardButton(f"{c} ({len(active[c])})", callback_data=f"buy_{c}"))
     
     txt = "📍 **Select Country to Purchase Number:**"
     if message_id:
         try: bot.edit_message_text(txt, chat_id, message_id, reply_markup=markup)
         except: pass
-    else:
-        bot.send_message(chat_id, txt, reply_markup=markup)
+    else: bot.send_message(chat_id, txt, reply_markup=markup)
 
-# --- CORE OTP MATCHING & FORWARDING ENGINE ---
+# --- 🚀 ADVANCED FORWARDING ENGINE (মনের মতো শক্তিশালী লজিক) ---
 def process_single_otp_message(txt):
     if not txt: return
-    
-    # গ্রুপ মেসেজ থেকে সংখ্যাগুলো আলাদা করা
     num_parts = re.findall(r'\d+', txt)
     if not num_parts: return
     
-    # লাস্ট অংশটিই মাস্কড বা নরমাল নাম্বারের শেষ ৪ ডিজিট নির্দেশ করে
-    group_last_4 = num_parts[-1]
-    if len(group_last_4) < 4: return
-    group_last_4 = group_last_4[-4:]
+    group_last_4 = num_parts[-1][-4:] if len(num_parts[-1]) >= 4 else num_parts[-1]
+    if len(group_last_4) < 3: return # সেফটি চেক
 
-    # রিয়েলটাইম ক্লাউড স্টোরেজ থেকে একটিভ ইউজার সেশন ডাটাবেজ রিড করা হচ্ছে
-    local_users = get_cloud_data('users_data.json', {})
-    if not local_users: return
-
-    for uid_str, u_info in local_users.items():
-        active_list = u_info.get("active_numbers", [])
-        if not active_list: continue
-        
-        for num_obj in active_list:
+    users = get_cloud_users()
+    for uid, info in users.items():
+        active_numbers = info.get("active_numbers", [])
+        for num_obj in active_numbers:
             clean_num = re.sub(r'\D', '', num_obj["number"])
-            if len(clean_num) < 4: continue
             user_last_4 = clean_num[-4:]
             
-            # 🔥 ম্যাচিং লজিক: ওটিপি গ্রুপ লাস্ট ৪ == ইউজারের একটিভ নাম্বার লাস্ট ৪ 🔥
-            if group_last_4 == user_last_4:
-                # ওটিপি কোড পার্স করা
-                otp_match = re.search(r'(?:OTP|code)[:\s]*(\d+)', txt, re.IGNORECASE)
-                if otp_match:
-                    otp_code = otp_match.group(1)
+            # 🔥 রিয়েল-টাইম লাস্ট ৪ ডিজিট ম্যাচিং টেস্ট 🔥
+            if group_last_4 in user_last_4 or user_last_4 in group_last_4:
+                otp_match = re.search(r'(?:OTP|code|🧑‍💻)[:\s]*(\d+)', txt, re.IGNORECASE)
+                if otp_match: otp_code = otp_match.group(1)
                 else:
                     all_digits = re.findall(r'\b\d{4,8}\b', txt)
-                    possible_codes = [d for d in all_digits if d not in num_parts]
-                    otp_code = possible_codes[0] if possible_codes else "Not Found"
+                    possible = [d for d in all_digits if d not in num_parts]
+                    otp_code = possible[0] if possible else "Not Found"
 
-                # ডুপ্লিকেট ওটিপি ফরওয়ার্ড লক
-                unique_key = f"{uid_str}_{user_last_4}_{otp_code}"
-                if unique_key in processed_otps: return
-                processed_otps.add(unique_key)
+                ukey = f"{uid}_{user_last_4}_{otp_code}"
+                if ukey in processed_otps: return
+                processed_otps.add(ukey)
 
-                # অ্যাপ আইডেন্টিফিকেশন
-                service_name = "Unknown Service"
-                apps = ["Telegram", "WhatsApp", "Imo", "Facebook", "Google", "Viber", "Kakao", "TikTok", "WeChat", "Line"]
-                for app in apps:
-                    if app.lower() in txt.lower():
-                        service_name = app
-                        break
+                srv = "Unknown"
+                for app in ["Telegram", "WhatsApp", "Imo", "Facebook", "Google", "TikTok", "Viber"]:
+                    if app.lower() in txt.lower(): srv = app; break
 
                 final_msg = (
                     f"✨ **NEW OTP RECEIVED!**\n"
                     f"━━━━━━━━━━━━━━━━━━\n"
-                    f"📱 **Service:** {service_name}\n"
-                    f"🔢 **Matched Number:** `...{user_last_4}`\n"
+                    f"📱 **Service:** {srv}\n"
+                    f"🔢 **Matched Number:** `{num_obj['number']}`\n"
                     f"🔑 **OTP Code:** `{otp_code}`\n"
                     f"━━━━━━━━━━━━━━━━━━"
                 )
-                try:
-                    bot.send_message(int(uid_str), final_msg, parse_mode="Markdown")
+                try: bot.send_message(int(uid), final_msg, parse_mode="Markdown")
                 except: pass
                 return
 
-# --- TELEGRAM HANDLERS ---
+# --- HANDLERS ---
 @bot.message_handler(commands=['start'])
 def handle_start(message):
     uid = str(message.from_user.id)
-    name = message.from_user.first_name
-    
     if not is_user_joined_all(message.from_user.id):
-        config = get_cloud_data('settings.json', {"channels": []})
+        cfg = get_settings()
         markup = types.InlineKeyboardMarkup(row_width=1)
-        for i, ch in enumerate(config.get('channels', []), 1):
+        for i, ch in enumerate(cfg.get('channels', []), 1):
             markup.add(types.InlineKeyboardButton(f"📢 Join Channel {i}", url=ch['link']))
         markup.add(types.InlineKeyboardButton("✅ Verify Join", callback_data="verify_join"))
-        bot.send_message(message.chat.id, "⚠️ **You must join our channels to use this bot!**", reply_markup=markup, parse_mode="Markdown")
+        bot.send_message(message.chat.id, "⚠️ **You must join our channels first!**", reply_markup=markup)
         return
 
-    users = get_cloud_data('users_data.json', {})
+    users = get_cloud_users()
     if uid not in users:
-        users[uid] = {"balance": 0.0, "ref_count": 0, "name": name, "joined": True, "active_numbers": []}
-        save_cloud_data('users_data.json', users)
-
-    welcome_msg = f"👋 **Hello, {name}!**\n✨ **Welcome to PREMIUM SMS PANEL**\n🚀 *Fastest Auto OTP Service.*"
-    bot.send_message(message.chat.id, welcome_msg, reply_markup=main_keyboard(), parse_mode="Markdown")
+        users[uid] = {"balance": 0.0, "ref_count": 0, "name": message.from_user.first_name, "active_numbers": []}
+        save_cloud_users(users)
+    bot.send_message(message.chat.id, f"👋 Welcome {message.from_user.first_name}!", reply_markup=main_keyboard())
 
 @bot.message_handler(commands=['settings'])
 def admin_settings(message):
     if int(message.from_user.id) != ADMIN_ID: return
-    config = get_cloud_data('settings.json', {"ref_bonus": 2.0, "min_withdraw": 500.0, "channels": []})
-    markup = types.InlineKeyboardMarkup(row_width=1)
+    cfg = get_settings()
+    markup = types.InlineKeyboardMarkup(row_width=2)
     markup.add(
-        types.InlineKeyboardButton("⚙️ Manage Channels", callback_data="conf_chan"),
-        types.InlineKeyboardButton("🗑️ Clear Stock", callback_data="conf_clear")
+        types.InlineKeyboardButton("💰 Set Refer", callback_data="set_ref"),
+        types.InlineKeyboardButton("🏧 Set Min Withdraw", callback_data="set_wit"),
+        types.InlineKeyboardButton("📢 Channels", callback_data="manage_ch"),
+        types.InlineKeyboardButton("🗑️ Clear Stock", callback_data="clear_stk")
     )
-    text = f"🛠 **Admin Panel**\n💰 Refer Bonus: {config['ref_bonus']} BDT\n🏧 Min Withdraw: {config['min_withdraw']} BDT"
-    bot.send_message(message.chat.id, text, reply_markup=markup)
+    bot.send_message(message.chat.id, f"🛠 **Admin Panel**\n\nRefer Bonus: {cfg['ref_bonus']} BDT\nMin Withdraw: {cfg['min_withdraw']} BDT", reply_markup=markup)
 
 @bot.message_handler(func=lambda message: message.chat.id == OTP_GROUP_ID)
-def listen_otp_group(message):
-    txt = message.text if message.text else (message.caption if message.caption else "")
+def listen_group(message):
+    txt = message.text or message.caption or ""
     process_single_otp_message(txt)
 
 @bot.message_handler(content_types=['text', 'document'])
 def handle_all(message):
     if message.chat.id == OTP_GROUP_ID: return
     uid = str(message.from_user.id)
-    
+
     if message.text == "📞 Get Number":
         send_country_list(message.chat.id)
     elif message.text == "💰 Balance":
-        users = get_cloud_data('users_data.json', {})
-        bot.send_message(message.chat.id, f"💳 **Current Balance:** {users.get(uid, {}).get('balance', 0.0)} BDT")
+        users = get_cloud_users()
+        bot.send_message(message.chat.id, f"💳 Balance: {users.get(uid, {}).get('balance', 0.0)} BDT")
     elif message.text == "🌍 Available Countries":
-        current_db = get_cloud_data('numbers_db.json', {})
-        active = [f"✅ {k} ({len(v)})" for k, v in current_db.items() if v and len(v) > 0]
+        stock = get_cloud_stock()
+        active = [f"✅ {k} ({len(v)})" for k, v in stock.items() if v]
         bot.send_message(message.chat.id, "🌍 Stock List:\n\n" + "\n".join(active) if active else "❌ Empty")
     
-    # 📝 এডমিন যখন ডক/টেক্সট ফাইল আপলোড করবে, ডিরেক্ট ক্লাউড ডাটাবেজে স্টোর হবে
+    # 📝 এডমিন ফাইল আপলোড সিস্টেম
     elif int(message.from_user.id) == ADMIN_ID and message.content_type == 'document':
         f_info = bot.get_file(message.document.file_id)
         txt = bot.download_file(f_info.file_path).decode('utf-8')
         found = re.findall(r'\d{7,16}', txt)
         if found:
-            curr_db = get_cloud_data('numbers_db.json', {})
+            stock = get_cloud_stock()
             added = 0
             for r in found:
                 flag = detect_country_flag(r)
                 try: name = geocoder.description_for_number(phonenumbers.parse(f"+{r.lstrip('+')}"), "en")
-                except: name = "Unknown"
-                c_name = f"{flag} {name}" if name != "Unknown" else f"📍 Zone +{r[:3]}"
-                if c_name not in curr_db: curr_db[c_name] = []
+                except: name = "Zone"
+                c_name = f"{flag} {name}"
+                if c_name not in stock: stock[c_name] = []
                 num = f"+{r.lstrip('+')}"
-                if num not in curr_db[c_name]:
-                    curr_db[c_name].append(num)
+                if num not in stock[c_name]:
+                    stock[c_name].append(num)
                     added += 1
-            save_cloud_data('numbers_db.json', curr_db)
-            bot.reply_to(message, f"✅ Successfully loaded and backed up {added} numbers to Telegram Cloud Storage Channel.")
+            save_cloud_stock(stock)
+            bot.reply_to(message, f"✅ Successfully loaded and backed up {added} numbers to TXT Cloud Database.")
+
+    # ⚙️ অ্যাডমিন স্টেট প্রসেসিং
+    elif int(message.from_user.id) == ADMIN_ID and uid in admin_states:
+        state = admin_states.pop(uid)
+        cfg = get_settings()
+        if state == "ref":
+            cfg["ref_bonus"] = float(message.text)
+            bot.send_message(message.chat.id, "✅ Refer bonus updated!")
+        elif state == "wit":
+            cfg["min_withdraw"] = float(message.text)
+            bot.send_message(message.chat.id, "✅ Min withdraw updated!")
+        save_settings(cfg)
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
@@ -256,47 +307,48 @@ def handle_query(call):
             handle_start(call.message)
         else: bot.answer_callback_query(call.id, "❌ জয়েন করেননি!", show_alert=True)
 
-    elif call.data.startswith('sel_'):
-        country = call.data.replace('sel_', '')
-        curr_db = get_cloud_data('numbers_db.json', {})
+    elif call.data == "set_ref":
+        admin_states[uid] = "ref"
+        bot.send_message(chat_id, "✍️ Enter new refer bonus amount:")
+    elif call.data == "set_wit":
+        admin_states[uid] = "wit"
+        bot.send_message(chat_id, "✍️ Enter new min withdraw amount:")
+    elif call.data == "clear_stk":
+        save_cloud_stock({})
+        bot.answer_callback_query(call.id, "🗑️ Stock completely cleared!", show_alert=True)
+
+    elif call.data.startswith('buy_'):
+        country = call.data.replace('buy_', '')
+        stock = get_cloud_stock()
         
-        if country in curr_db and curr_db[country]:
-            users = get_cloud_data('users_data.json', {})
-            if uid not in users: users[uid] = {"balance": 0.0, "ref_count": 0, "name": call.from_user.first_name, "joined": True, "active_numbers": []}
+        if country in stock and len(stock[country]) >= 3:
+            users = get_cloud_users()
+            if uid not in users: users[uid] = {"balance": 0.0, "ref_count": 0, "name": call.from_user.first_name, "active_numbers": []}
             
-            # আগের একটিভ নাম্বার ক্লিয়ার করে নতুনটিকে টার্গেট করা
-            users[uid]["active_numbers"] = []
-
-            # 🔄 ডিলিট অ্যান্ড পুশ: স্টক ফাইল থেকে তুলবে এবং স্টক ফাইল থেকে সাথে সাথে রিমুভ করবে
-            delivered_numbers = []
+            # 🔄 ডিলিট অ্যান্ড পুশ: মূল স্টক টেক্সট ফাইল থেকে নাম্বার চিরতরে রিমুভ করে ইউজারের আন্ডারে দেওয়া
+            delivered = []
             for _ in range(3):
-                if curr_db[country] and len(curr_db[country]) > 0:
-                    raw_num = str(curr_db[country].pop(0)) # পপ করার কারণে ফাইল থেকে ডিলিট হয়ে যাচ্ছে
-                    delivered_numbers.append(raw_num)
-                    users[uid]["active_numbers"].append({"number": raw_num, "country": country})
+                if stock[country]:
+                    delivered.append(stock[country].pop(0)) # পপ করে রিমুভ করা হলো
             
-            # ক্লাউড ফাইলে ইনস্ট্যান্ট সিঙ্ক সেভ
-            save_cloud_data('numbers_db.json', curr_db)
-            save_cloud_data('users_data.json', users)
+            users[uid]["active_numbers"] = [{"number": n, "country": country} for n in delivered]
             
-            if not delivered_numbers:
-                bot.answer_callback_query(call.id, "❌ Out of stock!", show_alert=True)
-                return
+            # ক্লাউড ফাইলে রাইট ব্যাক (একই সাথে আপডেট)
+            save_cloud_stock(stock)
+            save_cloud_users(users)
 
-            num_text = "\n".join([f"`{n}`" for n in delivered_numbers])
+            num_text = "\n".join([f"`{n}`" for n in delivered])
             markup = types.InlineKeyboardMarkup(row_width=1)
             markup.add(
-                types.InlineKeyboardButton("🔄 CHANGE NUMBERS", callback_data=f"sel_{country}"),
+                types.InlineKeyboardButton("🔄 CHANGE NUMBERS", callback_data=f"buy_{country}"),
                 types.InlineKeyboardButton("🚀 GET OTP", url=OTP_GROUP_LINK)
             )
             msg_text = f"🌍 **Country:** {country}\n━━━━━━━━━━━━━━\n{num_text}\n━━━━━━━━━━━━━━\n💡 **Tap number to copy!**"
             bot.edit_message_text(msg_text, chat_id, message_id, reply_markup=markup, parse_mode="Markdown")
         else:
-            bot.answer_callback_query(call.id, "❌ Out of stock!", show_alert=True)
+            bot.answer_callback_query(call.id, "❌ Not enough numbers in stock (Minimum 3 required)!", show_alert=True)
 
 if __name__ == "__main__":
-    try: bot.remove_webhook()
-    except: pass
-    print("Railway Cloud Database Sync Bot is Live...")
-    bot.infinity_polling()
+    print("Railway formatted openable-database sync bot is active...")
+    bot.infinity_polling(none_stop=True)
     
