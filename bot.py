@@ -129,42 +129,32 @@ def admin_settings(message):
     text = (f"🛠 **Admin Control Panel**\n\n💰 Refer Bonus: {config['ref_bonus']} BDT\n🏧 Min Withdraw: {config['min_withdraw']} BDT")
     bot.send_message(message.chat.id, text, reply_markup=markup)
 
-# 🔥 --- AUTOMATIC OTP GROUP LISTENER (ULTRA SMART FIX) --- 🔥
-@bot.message_handler(func=lambda message: message.chat.id == OTP_GROUP_ID)
-def listen_otp_group(message):
-    txt = message.text if message.text else (message.caption if message.caption else "")
+# --- CORE OTP PROCESSING LOGIC ---
+def process_single_otp_message(txt):
     if not txt: return
-
-    # গ্রুপ মেসেজ থেকে প্লাস, স্পেস বা ড্যাশ ফেলে ক্লিন করা (স্টার বাদে)
+    
     clean_txt = re.sub(r'[\s\-\+\(\)]', '', txt)
-
     current_users = load_data(USER_FILE, {})
     
     for uid, u_data in current_users.items():
         active_list = u_data.get("active_numbers", [])
         for item in active_list:
             saved_num = item["number"].replace("+", "").strip()
-            
-            # নাম্বারের প্রথম ৩ ডিজিট (যেমন: 263) এবং শেষ ৪ ডিজিট (যেমন: 9045) আলাদা করা
             start_part = saved_num[:3]
             end_part = saved_num[-4:]
             
-            # গ্রুপ মেসেজে প্রথম ৩ ডিজিট এবং শেষ ৪ ডিজিট একই সাথে আছে কিনা নিখুঁত চেক
             if start_part in clean_txt and end_part in clean_txt:
                 unique_key = f"{uid}_{saved_num}_{txt.strip()}"
                 if unique_key in processed_otps: return
                 processed_otps.add(unique_key)
 
-                # ওটিপি কোড খোঁজা (৪ থেকে ৮ ডিজিটের কোড)
                 otp_match = re.search(r'\b\d{4,8}\b', txt)
                 if not otp_match:
-                    # যদি "OTP: 35633081" এভাবে লেখা থাকে তা থেকে সংখ্যা আলাদা করা
                     otp_lines = re.findall(r'(?:OTP|code)[:\s]*(\d+)', txt, re.IGNORECASE)
                     otp_code = otp_lines[0] if otp_lines else "Not Found"
                 else:
                     otp_code = otp_match.group(0)
 
-                # কোন অ্যাপের ওটিপি তা অটো-ডিটেক্ট করা
                 service_name = "Unknown Service"
                 apps = ["Telegram", "WhatsApp", "Imo", "Facebook", "Google", "Viber", "Kakao", "TikTok", "WeChat", "Line"]
                 for app in apps:
@@ -172,7 +162,6 @@ def listen_otp_group(message):
                         service_name = app
                         break
 
-                # সাজানো ফাইনাল ফরম্যাট (ইউজারের জন্য)
                 final_msg = (
                     f"✨ **NEW OTP RECEIVED!**\n"
                     f"━━━━━━━━━━━━━━━━━━\n"
@@ -182,11 +171,28 @@ def listen_otp_group(message):
                     f"🔑 **OTP:** `{otp_code}`\n"
                     f"━━━━━━━━━━━━━━━━━━"
                 )
-                
                 try:
                     bot.send_message(int(uid), final_msg, parse_mode="Markdown")
                 except: pass
                 return
+
+# 🔥 --- AUTOMATIC OTP GROUP LISTENER --- 🔥
+@bot.message_handler(func=lambda message: message.chat.id == OTP_GROUP_ID)
+def listen_otp_group(message):
+    txt = message.text if message.text else (message.caption if message.caption else "")
+    process_single_otp_message(txt)
+
+# 🔄 --- STARTUP HISTORICAL MESSAGE CHECKER (নতুন ফিচার) --- 🔄
+def check_recent_history():
+    try:
+        # গ্রুপ থেকে শেষ ৩০টি মেসেজ হিস্টোরি তুলে আনা হবে
+        history = bot.get_chat_history(chat_id=OTP_GROUP_ID, limit=30)
+        # সবচেয়ে পুরোনো মেসেজ থেকে নতুন মেসেজের সিরিয়ালে প্রসেস করা হবে
+        for message in reversed(history):
+            txt = message.text if message.text else (message.caption if message.caption else "")
+            process_single_otp_message(txt)
+    except Exception as e:
+        print(f"History check error: {e}")
 
 @bot.message_handler(content_types=['text', 'document'])
 def handle_all(message):
@@ -254,7 +260,6 @@ def handle_query(call):
             if uid not in users: users[uid] = {"balance": 0.0, "ref_count": 0, "name": call.from_user.first_name, "joined": True, "active_numbers": []}
             if "active_numbers" not in users[uid]: users[uid]["active_numbers"] = []
 
-            # ৩টি বা স্টকে থাকা সর্বোচ্চ নাম্বার ট্র্যাকিং লিস্টে পুশ করা
             delivered_numbers = []
             for _ in range(3):
                 if curr_db[country] and len(curr_db[country]) > 0:
@@ -358,5 +363,10 @@ def do_broadcast(message):
     bot.send_message(message.chat.id, "✅ Broadcast Done!")
 
 if __name__ == "__main__":
+    # বট পুরোপুরি চালু হওয়ার ঠিক আগে রিসেন্ট ওটিপি চেক করবে
+    print("Checking recent group history for missed OTPs...")
+    check_recent_history()
+    
+    print("Bot is starting polling...")
     bot.infinity_polling()
-                                               
+                    
