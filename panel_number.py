@@ -4,6 +4,8 @@ import re
 import json
 import os
 from datetime import datetime, timedelta
+import phonenumbers
+from phonenumbers import geocoder
 
 # === CONFIGURATION ===
 PANEL_NAME = "Premium OTP Panel" 
@@ -15,17 +17,6 @@ OTP_GROUP_ID = -1002295608331
 USER_FILE = 'users_data.json'
 SENT_FILE = 'db_number_panel.json'
 
-# কান্ট্রি ডাটাবেস (ফ্ল্যাগ এবং পূর্ণ নাম সহ)
-COUNTRY_MAP = {
-    "263": ("🇿🇼", "Zimbabwe"),
-    "964": ("🇮🇶", "Iraq"),
-    "880": ("🇧🇩", "Bangladesh"),
-    "91":  ("🇮🇳", "India"),
-    "1":   ("🇺🇸", "USA"),
-    "234": ("🇳🇬", "Nigeria"),
-    "7":   ("🇷🇺", "Russia"),
-    "44":  ("🇬🇧", "United Kingdom")
-}
 SERVICE_ICONS = {"facebook": "🔵 Facebook", "whatsapp": "🟢 WhatsApp", "telegram": "✈️ Telegram"}
 
 # মেমরি লক (ওটিপি ডাবল হওয়া প্রতিরোধ করার জন্য)
@@ -36,13 +27,31 @@ def mask_number(number):
     return f"{num_str[:-7]}***{num_str[-4:]}" if len(num_str) > 7 else num_str
 
 def get_country_info(number):
-    """নম্বর থেকে দেশের ফ্ল্যাগ এবং নাম বের করার ফাংশন"""
-    clean_num = str(number).lstrip('+').strip()
-    # দীর্ঘতম কান্ট্রি কোডগুলো আগে চেক করা হচ্ছে
-    for code, info in sorted(COUNTRY_MAP.items(), key=lambda x: len(x[0]), reverse=True):
-        if clean_num.startswith(code):
-            return info[0], info[1] # ফ্ল্যাগ, নাম ফেরত দেবে
-    return "🌐", "Global"
+    """
+    phonenumbers লাইব্রেরি ব্যবহার করে পৃথিবীর যেকোনো দেশের নাম 
+    এবং তার সঠিক ফ্ল্যাগ (Flag) স্বয়ংক্রিয়ভাবে বের করার এআই ফাংশন।
+    """
+    try:
+        raw_num = str(number).strip()
+        if not raw_num.startswith('+'):
+            raw_num = '+' + raw_num
+            
+        parsed_num = phonenumbers.parse(raw_num, None)
+        
+        # দেশের নাম বের করা (যেমন: Bangladesh, United States, Zimbabwe)
+        country_name = geocoder.description_for_number(parsed_num, "en")
+        
+        # ২ অক্ষরের কান্ট্রি কোড বের করা (যেমন: BD, US, ZW)
+        region_code = phonenumbers.region_code_for_number(parsed_num)
+        
+        if region_code:
+            # ২ অক্ষরের রিজিয়ন কোড থেকে ইমোজি ফ্ল্যাগ তৈরি করার স্ট্যান্ডার্ড নিয়ম
+            flag = "".join(chr(ord(c) + 127397) for c in region_code.upper())
+            return flag, country_name
+    except:
+        pass
+    
+    return "🌐", "Global / Unknown"
 
 def safe_load_json(file_path, default_value):
     if os.path.exists(file_path):
@@ -53,7 +62,7 @@ def safe_load_json(file_path, default_value):
     return default_value
 
 def send_to_telegram_group_premium(service, number, otp, full_msg):
-    # ফ্ল্যাগ এবং দেশের নাম বের করা হচ্ছে
+    # গ্লোবাল ডাটাবেস থেকে স্বয়ংক্রিয়ভাবে ফ্ল্যাগ এবং দেশের নাম বের করা হচ্ছে
     flag, country_name = get_country_info(number)
     
     srv_name = service.lower()
@@ -61,13 +70,13 @@ def send_to_telegram_group_premium(service, number, otp, full_msg):
     
     # গ্রুপ মেসেজ ফরম্যাট
     text = (
-        f"✅ <b>New OTP Received</b>\n\n"
+        f"✅ <b>New OTP Received</b>\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"🌍 <b>Country:</b> {flag} {country_name}\n\n"
-        f"📱 <b>Service:</b> {header}\n\n"
-        f"📲 <b>Number:</b> <code>{mask_number(number)}</code>\n\n"
-        f"🔑 <b>OTP Code:</b> <code>{otp}</code>\n\n"
-        f"━━━━━━━━━━━━━━━━━━\n\n"
+        f"🌍 <b>Country:</b> {flag} {country_name}\n"
+        f"📱 <b>Service:</b> {header}\n"
+        f"📲 <b>Number:</b> <code>{mask_number(number)}</code>\n"
+        f"🔑 <b>OTP Code:</b> <code>{otp}</code>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
         f"📩 <b>Full Msg:</b>\n"
         f"<pre>{full_msg}</pre>"
     )
@@ -94,7 +103,7 @@ def send_direct_to_user_inbox(service, number, otp):
     if len(clean_num) < 5: return
     target_part = clean_num[-5:]
     
-    # ফ্ল্যাগ এবং দেশের নাম বের করা হচ্ছে
+    # গ্লোবাল ডাটাবেস থেকে স্বয়ংক্রিয়ভাবে ফ্ল্যাগ এবং দেশের নাম বের করা হচ্ছে
     flag, country_name = get_country_info(number)
 
     for uid, u_info in current_users.items():
@@ -110,7 +119,7 @@ def send_direct_to_user_inbox(service, number, otp):
                         srv_clean = v
                         break
                 
-                # ইনবক্স মেসেজ ফরম্যাট (এখানেও কান্ট্রি নাম ও ফ্ল্যাগ যুক্ত করা হয়েছে)
+                # ইনবক্স মেসেজ ফরম্যাট (এখানেও দেশের পূর্ণ নাম ও ফ্ল্যাগ যুক্ত করা হয়েছে)
                 final_msg = (
                     f"✨ **NEW OTP RECEIVED!**\n"
                     f"━━━━━━━━━━━━━━━━━━\n"
@@ -129,7 +138,6 @@ def send_direct_to_user_inbox(service, number, otp):
 def main():
     print(f"🟢 [Railway Log] {PANEL_NAME} স্ক্যানার রানিং...")
     
-    # পূর্বের পাঠানো ওটিপি মেমরিতে লোড করা হচ্ছে
     initial_list = safe_load_json(SENT_FILE, [])
     for item in initial_list:
         LOCAL_PROCESSED_KEYS.add(str(item))
@@ -153,13 +161,12 @@ def main():
                             otp_match = re.search(r'\b(\d{4,8})\b', msg)
                             otp = otp_match.group() if otp_match else "N/A"
                             
-                            # ডুপ্লিকেট চেক আইডি
                             uid_key = f"{num}_{otp}"
                             
                             if uid_key not in LOCAL_PROCESSED_KEYS:
-                                LOCAL_PROCESSED_KEYS.add(uid_key) # সাথে সাথে মেমরি লক
+                                LOCAL_PROCESSED_KEYS.add(uid_key) 
                                 
-                                print(f"🔥 [NEW OTP] Processing {num} -> OTP: {otp}")
+                                print(f"🔥 [NEW OTP] Processing {num} -> Country Detected automatically")
                                 
                                 # গ্রুপে পাঠানো হচ্ছে 
                                 send_to_telegram_group_premium(srv, num, otp, msg)
@@ -177,8 +184,8 @@ def main():
             
             time.sleep(3) 
         except Exception as e:
-            time.sleep(5)
+            time.sleep(4)
 
 if __name__ == "__main__":
     main()
-    
+                                
