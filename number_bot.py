@@ -17,6 +17,15 @@ OTP_GROUP_LINK = "https://t.me/Premium_OTP_chat"
 
 bot = telebot.TeleBot(API_TOKEN, threaded=False)
 
+# গ্লোবাল মেমরি ডিকশনারি অ্যাডমিনের ফাইল/টেক্সট আপলোড প্রসেস ট্র্যাকিংয়ের জন্য
+ADMIN_UPLOAD_TEMP = {}
+
+SERVICES = {
+    "FACEBOOK": {"name": "Facebook", "icon": "🔵"},
+    "WHATSAPP": {"name": "WhatsApp", "icon": "🟢"},
+    "TELEGRAM": {"name": "Telegram", "icon": "✈️"}
+}
+
 def load_data(file, default):
     if os.path.exists(file):
         try:
@@ -56,20 +65,42 @@ def detect_country_flag(num_str):
         return "".join(chr(ord(c) + 127397) for c in region.upper()) if region else "📍"
     except: return "📍"
 
-def send_country_list(chat_id, message_id=None):
+# 🎯 ১. সার্ভিস সিলেকশন স্ক্রিন জেনারেটর
+def send_service_list(chat_id, message_id=None):
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    for key, val in SERVICES.items():
+        markup.add(types.InlineKeyboardButton(f"{val['icon']} {val['name']}", callback_data=f"show_srv_{key}"))
+    
+    txt = "⚔️ <b>Select a Service:</b>"
+    if message_id:
+        try: bot.edit_message_text(txt, chat_id, message_id, reply_markup=markup, parse_mode="HTML")
+        except: pass
+    else:
+        bot.send_message(chat_id, txt, reply_markup=markup, parse_mode="HTML")
+
+# 🎯 ২. নির্দিষ্ট সার্ভিসের ভেতরের দেশসমূহের তালিকা দেখার স্ক্রিন
+def send_country_list(chat_id, service_key, message_id=None):
     curr_db = load_data(DB_FILE, {})
-    active = {k: v for k, v in curr_db.items() if isinstance(v, list) and len(v) > 0}
+    srv_stock = curr_db.get(service_key, {})
+    active = {k: v for k, v in srv_stock.items() if isinstance(v, list) and len(v) > 0}
+    
     if not active:
-        bot.send_message(chat_id, "❌ **No stock available.**")
+        txt = f"❌ <b>Out of stock for {SERVICES[service_key]['name']}!</b>"
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("⬅️ Back To Services", callback_data="back_to_services"))
+        if message_id: bot.edit_message_text(txt, chat_id, message_id, reply_markup=markup, parse_mode="HTML")
+        else: bot.send_message(chat_id, txt, reply_markup=markup, parse_mode="HTML")
         return
+        
     markup = types.InlineKeyboardMarkup(row_width=1)
     for c in sorted(active.keys()):
-        markup.add(types.InlineKeyboardButton(f"{c} ({len(active[c])})", callback_data=f"sel_{c}"))
+        markup.add(types.InlineKeyboardButton(f"{c} ({len(active[c])})", callback_data=f"sel_{service_key}_{c}"))
+    markup.add(types.InlineKeyboardButton("⬅️ Back To Services", callback_data="back_to_services"))
     
-    txt = "📍 **Select Country:**"
+    txt = f"📍 <b>Select Country for {SERVICES[service_key]['name']}:</b>"
     try:
-        if message_id: bot.edit_message_text(txt, chat_id, message_id, reply_markup=markup)
-        else: bot.send_message(chat_id, txt, reply_markup=markup)
+        if message_id: bot.edit_message_text(txt, chat_id, message_id, reply_markup=markup, parse_mode="HTML")
+        else: bot.send_message(chat_id, txt, reply_markup=markup, parse_mode="HTML")
     except: pass
 
 @bot.message_handler(commands=['start'])
@@ -121,7 +152,7 @@ def handle_all(message):
     if not is_user_joined_all(message.from_user.id): return
     
     if message.text == "📞 Get Number":
-        send_country_list(message.chat.id)
+        send_service_list(message.chat.id)
     elif message.text == "💰 Balance":
         users = load_data(USER_FILE, {})
         u_data = users.get(uid, {"balance": 0.0})
@@ -133,8 +164,15 @@ def handle_all(message):
         bot.send_message(message.chat.id, f"❌ **Min Withdraw:** {config['min_withdraw']} BDT")
     elif message.text == "🌍 Available Countries":
         current_db = load_data(DB_FILE, {})
-        active = [f"✅ {k} ({len(v)})" for k, v in current_db.items() if v and len(v) > 0]
-        bot.send_message(message.chat.id, "🌍 Stock List:\n\n" + "\n".join(active) if active else "❌ Empty")
+        summary_lines = []
+        for s_key, s_val in SERVICES.items():
+            srv_stock = current_db.get(s_key, {})
+            active_cnt = [f"{k} ({len(v)})" for k, v in srv_stock.items() if v and len(v) > 0]
+            if active_cnt:
+                summary_lines.append(f"{s_val['icon']} <b>{s_val['name']} Stock:</b>")
+                for line in active_cnt:
+                    summary_lines.append(f"  └─ ✅ {line}")
+        bot.send_message(message.chat.id, "\n".join(summary_lines) if summary_lines else "❌ Empty", parse_mode="HTML")
     
     elif int(message.from_user.id) == ADMIN_ID:
         txt = message.text if message.text else ""
@@ -144,20 +182,12 @@ def handle_all(message):
         
         found = re.findall(r'\+?\d{9,15}', txt)
         if found:
-            curr_db = load_data(DB_FILE, {})
-            added = 0
-            for r in found:
-                clean_r = "+" + r.lstrip('+')
-                flag = detect_country_flag(clean_r)
-                try: name = geocoder.description_for_number(phonenumbers.parse(clean_r), "en")
-                except: name = "Unknown"
-                c_name = f"{flag} {name}" if name != "Unknown" else f"📍 Zone +{clean_r[1:4]}"
-                if c_name not in curr_db: curr_db[c_name] = []
-                if clean_r not in curr_db[c_name]:
-                    curr_db[c_name].append(clean_r)
-                    added += 1
-            save_data(DB_FILE, curr_db)
-            bot.reply_to(message, f"✅ Added {added} numbers to stock.")
+            ADMIN_UPLOAD_TEMP[message.from_user.id] = found
+            markup = types.InlineKeyboardMarkup(row_width=1)
+            for s_key, s_val in SERVICES.items():
+                markup.add(types.InlineKeyboardButton(f"Add to {s_val['name']}", callback_data=f"addstock_{s_key}"))
+            markup.add(types.InlineKeyboardButton("❌ Cancel", callback_data="addstock_CANCEL"))
+            bot.reply_to(message, f"🎯 <b>{len(found)} numbers detected.</b>\nSelect the target service to load this stock:", reply_markup=markup, parse_mode="HTML")
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
@@ -171,83 +201,160 @@ def handle_query(call):
             handle_start(call.message)
         else: bot.answer_callback_query(call.id, "❌ জয়েন করেননি!", show_alert=True)
 
-    elif call.data.startswith('sel_'):
-        country = call.data.replace('sel_', '')
-        curr_db = load_data(DB_FILE, {})
-        if country in curr_db and len(curr_db[country]) >= 1:
-            users = load_data(USER_FILE, {})
-            if uid not in users: 
-                users[uid] = {"balance": 0.0, "ref_count": 0, "name": call.from_user.first_name, "joined": True, "active_numbers": []}
-            
-            users[uid]["active_numbers"] = []
-            delivered_numbers = []
-            take_count = min(3, len(curr_db[country]))
-            for _ in range(take_count):
-                if curr_db[country]:
-                    raw_num = str(curr_db[country].pop(0))
-                    delivered_numbers.append(raw_num)
-                    users[uid]["active_numbers"].append({"number": raw_num, "country": country})
-            
-            save_data(DB_FILE, curr_db)
-            save_data(USER_FILE, users)
-            
-            if not delivered_numbers:
-                bot.answer_callback_query(call.id, "❌ স্টক শেষ!", show_alert=True)
-                return
+    elif call.data == "back_to_services":
+        send_service_list(chat_id, message_id)
 
-            # 📌 মেইন বটের বাটন জেনারেটর ইঞ্জিন (র-মেথড) শুরু 🚀
-            raw_keyboard = []
+    elif call.data.startswith('show_srv_'):
+        service_key = call.data.replace('show_srv_', '')
+        send_country_list(chat_id, service_key, message_id)
+
+    # 🎯 ৩. অ্যাডমিন কর্তৃক নির্দিষ্ট সার্ভিসে স্টক লোড করার ব্যাকএন্ড হ্যান্ডলার (ডুপ্লিকেট প্রোটেকশনসহ)
+    elif call.data.startswith('addstock_'):
+        srv_target = call.data.replace('addstock_', '')
+        admin_id = call.from_user.id
+        
+        if srv_target == "CANCEL":
+            if admin_id in ADMIN_UPLOAD_TEMP: del ADMIN_UPLOAD_TEMP[admin_id]
+            bot.edit_message_text("❌ Upload Session Cancelled.", chat_id, message_id)
+            return
             
-            # দেশের নাম থেকে শুধু কান্ট্রি ফ্ল্যাগ বা প্রথম ইমোজিটা আলাদা করে নেওয়া হচ্ছে
-            flag_icon = country.split()[0] if country.split() else "🌍"
+        if admin_id not in ADMIN_UPLOAD_TEMP:
+            bot.answer_callback_query(call.id, "❌ Session expired! Please upload the file/text again.", show_alert=True)
+            return
             
-            # ডেলিভারি হওয়া নম্বরগুলোকে বাটন আকারে সাজানো হচ্ছে (কোনো এক্সট্রা লোগো ছাড়া, শুধু পতাকা ও নম্বর)
-            for num in delivered_numbers:
-                btn_text = f"{flag_icon} {num}"
-                number_button = {
-                    "text": btn_text,
-                    "copy_text": {"text": str(num)} # এই মেথডটি বাটনের পাশে অরিজিনাল কপি সাইন নিয়ে আসবে
-                }
-                raw_keyboard.append([number_button])
+        found_numbers = ADMIN_UPLOAD_TEMP[admin_id]
+        curr_db = load_data(DB_FILE, {})
+        
+        if srv_target not in curr_db: 
+            curr_db[srv_target] = {}
+            
+        added = 0
+        notified_sample_country = "Global Zone"
+        
+        for r in found_numbers:
+            clean_r = "+" + r.lstrip('+')
+            flag = detect_country_flag(clean_r)
+            try: name = geocoder.description_for_number(phonenumbers.parse(clean_r), "en")
+            except: name = "Unknown"
+            c_name = f"{flag} {name}" if name != "Unknown" else f"📍 Zone +{clean_r[1:4]}"
+            
+            if c_name not in curr_db[srv_target]: 
+                curr_db[srv_target][c_name] = []
                 
-            # কন্ট্রোল বাটনগুলো নিচে যুক্ত করা হলো
-            raw_keyboard.append([{"text": "🔄 CHANGE NUMBERS", "callback_data": f"sel_{country}"}])
-            raw_keyboard.append([{"text": "🌐 CHANGE COUNTRY", "callback_data": "back_c"}])
-            raw_keyboard.append([{"text": "🚀 GET OTP", "url": OTP_GROUP_LINK}])
+            # একই সার্ভিসের স্টকে নম্বরটি ডুপ্লিকেট কি না তা যাচাই করা হচ্ছে (অন্য সার্ভিসে থাকলে বাধা দেবে না)
+            if clean_r not in curr_db[srv_target][c_name]:
+                curr_db[srv_target][c_name].append(clean_r)
+                notified_sample_country = c_name
+                added += 1
+                
+        save_data(DB_FILE, curr_db)
+        del ADMIN_UPLOAD_TEMP[admin_id]
+        
+        if added > 0:
+            bot.edit_message_text(f"✅ Successfully loaded {added} unique numbers to {SERVICES[srv_target]['name']}.", chat_id, message_id)
             
-            custom_markup = {"inline_keyboard": raw_keyboard}
-            
-            # আপনার মেইন ডিসপ্লে মেসেজ টেক্সট
-            msg_text = f"🌍 **Country:** {country}\n━━━━━━━━━━━━━━\n⏳ **Waiting for OTP...**"
-            
-            bot.edit_message_text(
-                text=msg_text, 
-                chat_id=chat_id, 
-                message_id=message_id, 
-                reply_markup=json.dumps(custom_markup), 
-                parse_mode="Markdown"
+            # 🎯 ৪. প্রিমিয়াম গ্লোবাল ইউজার নোটিফিকেশন সিস্টেম ব্রডকাস্ট 📢
+            alert_msg = (
+                f"📢 <b>New Fresh Stock Added!</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━\n"
+                f"🛠 <b>Service:</b> {SERVICES[srv_target]['icon']} {SERVICES[srv_target]['name']}\n"
+                f"🌍 <b>Country Added:</b> {notified_sample_country}\n"
+                f"⚡ <b>Status:</b> High Traffic Live Now 🔥\n"
+                f"━━━━━━━━━━━━━━━━━━━\n"
+                f"🎯 <i>সবাই দ্রুত কাজ শুরু করুন এবং ওটিপি সংগ্রহ করুন!</i>"
             )
-        else: bot.answer_callback_query(call.id, "❌ স্টক শেষ!", show_alert=True)
+            all_users = load_data(USER_FILE, {})
+            for u in all_users.keys():
+                try: 
+                    bot.send_message(int(u), alert_msg, parse_mode="HTML")
+                    time.sleep(0.04)
+                except: pass
+        else:
+            bot.edit_message_text("⚠️ No new or unique numbers were added. All were duplicates in this service.", chat_id, message_id)
+
+    # 🎯 ৫. ইউজার কর্তৃক নম্বর গেট করার মাল্টি-সার্ভিস ইঞ্জিন মডিউল
+    elif call.data.startswith('sel_'):
+        data_string = call.data.replace('sel_', '')
+        parts = data_string.split('_', 1)
+        
+        if len(parts) < 2: return
+        service_key = parts[0]
+        country = parts[1]
+        
+        curr_db = load_data(DB_FILE, {})
+        srv_stock = curr_db.get(service_key, {}).get(country, [])
+        
+        if len(srv_stock) < 1:
+            bot.answer_callback_query(call.id, "❌ স্টক শেষ!", show_alert=True)
+            return
+            
+        users = load_data(USER_FILE, {})
+        if uid not in users: 
+            users[uid] = {"balance": 0.0, "ref_count": 0, "name": call.from_user.first_name, "joined": True, "active_numbers": []}
+        
+        users[uid]["active_numbers"] = []
+        delivered_numbers = []
+        take_count = min(3, len(srv_stock))
+        
+        for _ in range(take_count):
+            if srv_stock:
+                raw_num = str(srv_stock.pop(0))
+                delivered_numbers.append(raw_num)
+                users[uid]["active_numbers"].append({"number": raw_num, "country": country})
+        
+        curr_db[service_key][country] = srv_stock
+        save_data(DB_FILE, curr_db)
+        save_data(USER_FILE, users)
+        
+        if not delivered_numbers:
+            bot.answer_callback_query(call.id, "❌ স্টক শেষ!", show_alert=True)
+            return
+
+        raw_keyboard = []
+        flag_icon = country.split()[0] if country.split() else "🌍"
+        
+        for num in delivered_numbers:
+            btn_text = f"{flag_icon} {num}"
+            number_button = {
+                "text": btn_text,
+                "copy_text": {"text": str(num)}
+            }
+            raw_keyboard.append([number_button])
+            
+        raw_keyboard.append([{"text": "🔄 CHANGE NUMBERS", "callback_data": f"show_srv_{service_key}"}])
+        raw_keyboard.append([{"text": "🌐 CHANGE COUNTRY", "callback_data": f"show_srv_{service_key}"}])
+        raw_keyboard.append([{"text": "🚀 GET OTP", "url": OTP_GROUP_LINK}])
+        
+        custom_markup = {"inline_keyboard": raw_keyboard}
+        msg_text = f"🌍 **Country:** {country}\n⚙️ **Service:** {SERVICES[service_key]['icon']} {SERVICES[service_key]['name']}\n━━━━━━━━━━━━━━\n⏳ **Waiting for OTP...**"
+        
+        bot.edit_message_text(
+            text=msg_text, 
+            chat_id=chat_id, 
+            message_id=message_id, 
+            reply_markup=json.dumps(custom_markup), 
+            parse_mode="Markdown"
+        )
 
     elif call.data == "back_c":
-        send_country_list(chat_id, message_id)
+        send_service_list(chat_id, message_id)
 
     elif call.data == "conf_export":
         if int(uid) != ADMIN_ID: return
         curr_db = load_data(DB_FILE, {})
-        active_stock = {k: v for k, v in curr_db.items() if v and len(v) > 0}
-        if not active_stock:
-            bot.answer_callback_query(call.id, "❌ Database stock is completely empty!", show_alert=True)
-            return
         filename = "live_stock.txt"
         try:
             with open(filename, "w", encoding="utf-8") as f:
                 f.write("📊 PREMIUM SMS BOT - LIVE UNUSED STOCK REPORT\n")
                 f.write(f"📅 Generated on: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
                 f.write("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
-                for country, numbers in sorted(active_stock.items()):
-                    f.write(f"[{country}] - Available: {len(numbers)}\n")
-                    for num in numbers: f.write(f"{num}\n")
+                for s_key, s_val in SERVICES.items():
+                    f.write(f"=== {s_val['name']} Stock ===\n")
+                    srv_stock = curr_db.get(s_key, {})
+                    for country, numbers in sorted(srv_stock.items()):
+                        if numbers:
+                            f.write(f"[{country}] - Available: {len(numbers)}\n")
+                            for num in numbers: f.write(f"{num}\n")
                     f.write("\n")
             with open(filename, "rb") as doc:
                 bot.send_document(chat_id, doc, caption="📊 Live data stock file.")
@@ -259,23 +366,19 @@ def handle_query(call):
 
     elif call.data == "conf_clear":
         curr_db = load_data(DB_FILE, {})
-        active_countries = {k: v for k, v in curr_db.items() if v and len(v) > 0}
-        if not active_countries:
-            bot.answer_callback_query(call.id, "❌ No stock to clear!", show_alert=True)
-            return
         markup = types.InlineKeyboardMarkup(row_width=1)
-        for country in sorted(active_countries.keys()):
-            markup.add(types.InlineKeyboardButton(f"🗑️ Clear {country}", callback_data=f"rmv_{country}"))
+        for s_key, s_val in SERVICES.items():
+            markup.add(types.InlineKeyboardButton(f"🗑️ Clear {s_val['name']} Stock", callback_data=f"rmvsrv_{s_key}"))
         markup.add(types.InlineKeyboardButton("⬅️ Back", callback_data="back_settings"))
-        bot.edit_message_text("🗑️ **Select country to clear stock:**", chat_id, message_id, reply_markup=markup)
+        bot.edit_message_text("🗑️ **Select service to clear completely:**", chat_id, message_id, reply_markup=markup)
 
-    elif call.data.startswith('rmv_'):
-        country_to_rm = call.data.replace('rmv_', '')
+    elif call.data.startswith('rmvsrv_'):
+        srv_to_rm = call.data.replace('rmvsrv_', '')
         curr_db = load_data(DB_FILE, {})
-        if country_to_rm in curr_db:
-            curr_db[country_to_rm] = []
+        if srv_to_rm in curr_db:
+            curr_db[srv_to_rm] = {}
             save_data(DB_FILE, curr_db)
-            bot.answer_callback_query(call.id, f"✅ {country_to_rm} stock cleared!")
+            bot.answer_callback_query(call.id, f"✅ {SERVICES[srv_to_rm]['name']} stock cleared!")
             admin_settings(call.message)
 
     elif call.data == "back_settings":
@@ -342,4 +445,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
+        
