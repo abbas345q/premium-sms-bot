@@ -240,8 +240,7 @@ def handle_query(call):
             curr_db[srv_target] = {}
             
         added = 0
-        # 🌍 একাধিক দেশ ট্র্যাক করার জন্য সেট (Set) ব্যবহার করা হলো যেন ডুপ্লিকেট না হয়
-        added_countries = set()
+        notified_sample_country = "Global Zone"
         
         for r in found_numbers:
             clean_r = "+" + r.lstrip('+')
@@ -255,7 +254,7 @@ def handle_query(call):
                 
             if clean_r not in curr_db[srv_target][c_name]:
                 curr_db[srv_target][c_name].append(clean_r)
-                added_countries.add(c_name) # দেশটিকে নোটিফিকেশন ট্র্যাকের সেটে যুক্ত করা হলো
+                notified_sample_country = c_name
                 added += 1
                 
         save_data(DB_FILE, curr_db)
@@ -264,14 +263,11 @@ def handle_query(call):
         if added > 0:
             bot.edit_message_text(f"✅ Successfully loaded {added} unique numbers to {SERVICES[srv_target]['name']}.", chat_id, message_id)
             
-            # 📝 দেশের নামগুলোকে কমা দিয়ে সুন্দর একটি লাইন বা লিস্টে রূপান্তর করা হলো
-            countries_list_str = ", ".join(sorted(added_countries))
-            
             alert_msg = (
                 f"📢 <b>New Fresh Stock Added!</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━\n"
                 f"🛠 <b>Service:</b> {SERVICES[srv_target]['icon']} {SERVICES[srv_target]['name']}\n"
-                f"🌍 <b>Countries Added:</b> {countries_list_str}\n"
+                f"🌍 <b>Country Added:</b> {notified_sample_country}\n"
                 f"⚡ <b>Status:</b> High Traffic Live Now 🔥\n"
                 f"━━━━━━━━━━━━━━━━━━━\n"
                 f"🎯 <i>সবাই দ্রুত কাজ শুরু করুন এবং ওটিপি সাবমিট করুন!</i>"
@@ -442,3 +438,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+        
