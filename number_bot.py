@@ -15,7 +15,8 @@ USER_FILE = 'users_data.json'
 CONFIG_FILE = 'settings.json'
 OTP_GROUP_LINK = "https://t.me/Premium_OTP_chat"
 
-bot = telebot.TeleBot(API_TOKEN, threaded=True)
+# আপনার মূল কোড অনুযায়ী threaded=False রাখা হয়েছে
+bot = telebot.TeleBot(API_TOKEN, threaded=False)
 
 def load_data(file, default):
     if os.path.exists(file):
@@ -111,8 +112,7 @@ def handle_all(message):
     if message.text == "📞 Get Number": send_country_list(message.chat.id)
     elif message.text == "💰 Balance":
         users = load_data(USER_FILE, {})
-        u_data = users.get(uid, {"balance": 0.0})
-        bot.send_message(message.chat.id, f"💳 **Current Balance:** {u_data.get('balance', 0.0)} BDT")
+        bot.send_message(message.chat.id, f"💳 **Current Balance:** {users.get(uid, {'balance': 0.0}).get('balance', 0.0)} BDT")
     elif message.text == "🎁 Refer & Earn":
         bot_user = (bot.get_me()).username
         bot.send_message(message.chat.id, f"🎁 **Refer Link:** https://t.me/{bot_user}?start={uid}")
@@ -141,7 +141,6 @@ def handle_all(message):
                     curr_db[c_name].append(clean_r)
                     added += 1
             save_data(DB_FILE, curr_db)
-            # স্টক রিপোর্টিং সিস্টেম
             report = "✅ **New Number Stock Added!**\n\n📊 **Current Stock Summary:**\n"
             for k, v in sorted(curr_db.items()):
                 if len(v) > 0: report += f"{k}: {len(v)} numbers\n"
@@ -163,13 +162,15 @@ def handle_query(call):
             delivered_numbers = [str(curr_db[country].pop(0)) for _ in range(min(2, len(curr_db[country])))]
             save_data(DB_FILE, curr_db)
             raw_keyboard = []
-            flag_icon = country.split()[0]
+            flag_icon = country.split()[0] if country.split() else "🌍"
             for num in delivered_numbers:
-                raw_keyboard.append([{"text": f"{flag_icon} {num}", "copy_text": {"text": str(num)}}])
+                number_button = {"text": f"{flag_icon} {num}", "copy_text": {"text": str(num)}}
+                raw_keyboard.append([number_button])
             raw_keyboard.append([{"text": "🔄 CHANGE NUMBERS", "callback_data": f"sel_{country}"}])
             raw_keyboard.append([{"text": "🌐 CHANGE COUNTRY", "callback_data": "back_c"}])
             raw_keyboard.append([{"text": "🚀 GET OTP", "url": OTP_GROUP_LINK}])
-            bot.edit_message_text(f"🌍 **Country:** {country}\n━━━━━━━━━━━━━━\n⏳ **Waiting for OTP...**", chat_id, message_id, reply_markup=json.dumps({"inline_keyboard": raw_keyboard}), parse_mode="Markdown")
+            custom_markup = {"inline_keyboard": raw_keyboard}
+            bot.edit_message_text(f"🌍 **Country:** {country}\n━━━━━━━━━━━━━━\n⏳ **Waiting for OTP...**", chat_id, message_id, reply_markup=json.dumps(custom_markup), parse_mode="Markdown")
         else: bot.answer_callback_query(call.id, "❌ স্টক শেষ!", show_alert=True)
     elif call.data == "back_c": send_country_list(chat_id, message_id)
     elif call.data == "conf_export":
@@ -229,4 +230,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
+        
