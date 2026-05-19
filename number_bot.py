@@ -16,7 +16,7 @@ USER_FILE = 'users_data.json'
 CONFIG_FILE = 'settings.json'
 OTP_GROUP_LINK = "https://t.me/Premium_OTP_chat"
 
-# worker_pool বাড়িয়ে বটকে আরও ফাস্ট করা হলো
+# মাল্টি-থ্রেডিং ১০ দেওয়া হলো স্পিড ধরে রাখার জন্য
 bot = telebot.TeleBot(API_TOKEN, threaded=True, num_threads=10)
 
 ADMIN_UPLOAD_TEMP = {}
@@ -102,12 +102,15 @@ def send_country_list(chat_id, service_key, message_id=None):
         else: bot.send_message(chat_id, txt, reply_markup=markup, parse_mode="HTML")
     except: pass
 
+# 🔥 ব্রডকাস্ট ইঞ্জিনটি সম্পূর্ণরূপে ফিক্স করা হলো (String/Integer ঝামেলামুক্ত)
 def async_stock_alert_broadcast(alert_msg):
     all_users = load_data(USER_FILE, {})
-    for u in all_users.keys():
+    for u in list(all_users.keys()):
         try: 
-            bot.send_message(int(u), alert_msg, parse_mode="HTML")
-            time.sleep(0.04)
+            # আইডিটি টেক্সট বা সংখ্যা যাই হোক, সেটিকে পিওর ইন্টিজারে কনভার্ট করে পাঠানো হচ্ছে
+            clean_uid = int(str(u).strip())
+            bot.send_message(clean_uid, alert_msg, parse_mode="HTML")
+            time.sleep(0.05) # এপিআই ফ্লড এড়াতে সামান্য গ্যাপ
         except: 
             pass
 
@@ -199,7 +202,6 @@ def handle_all(message):
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
-    # ⚡ ইনলাইন বাটন সুপারফাস্ট করার জন্য ক্লিক করার সাথে সাথে সিগন্যাল রিলিজ করা হলো
     try: bot.answer_callback_query(call.id)
     except: pass
 
@@ -238,7 +240,8 @@ def handle_query(call):
             curr_db[srv_target] = {}
             
         added = 0
-        notified_sample_country = "Global Zone"
+        # 🌍 একাধিক দেশ ট্র্যাক করার জন্য সেট (Set) ব্যবহার করা হলো যেন ডুপ্লিকেট না হয়
+        added_countries = set()
         
         for r in found_numbers:
             clean_r = "+" + r.lstrip('+')
@@ -252,7 +255,7 @@ def handle_query(call):
                 
             if clean_r not in curr_db[srv_target][c_name]:
                 curr_db[srv_target][c_name].append(clean_r)
-                notified_sample_country = c_name
+                added_countries.add(c_name) # দেশটিকে নোটিফিকেশন ট্র্যাকের সেটে যুক্ত করা হলো
                 added += 1
                 
         save_data(DB_FILE, curr_db)
@@ -261,15 +264,19 @@ def handle_query(call):
         if added > 0:
             bot.edit_message_text(f"✅ Successfully loaded {added} unique numbers to {SERVICES[srv_target]['name']}.", chat_id, message_id)
             
+            # 📝 দেশের নামগুলোকে কমা দিয়ে সুন্দর একটি লাইন বা লিস্টে রূপান্তর করা হলো
+            countries_list_str = ", ".join(sorted(added_countries))
+            
             alert_msg = (
                 f"📢 <b>New Fresh Stock Added!</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━\n"
                 f"🛠 <b>Service:</b> {SERVICES[srv_target]['icon']} {SERVICES[srv_target]['name']}\n"
-                f"🌍 <b>Country Added:</b> {notified_sample_country}\n"
+                f"🌍 <b>Countries Added:</b> {countries_list_str}\n"
                 f"⚡ <b>Status:</b> High Traffic Live Now 🔥\n"
                 f"━━━━━━━━━━━━━━━━━━━\n"
                 f"🎯 <i>সবাই দ্রুত কাজ শুরু করুন এবং ওটিপি সাবমিট করুন!</i>"
             )
+            # স্টক ব্রডকাস্ট ব্যাকগ্রাউন্ড থ্রেডে পাঠিয়ে দেওয়া হলো ফিক্সড মেকানিজমে
             threading.Thread(target=async_stock_alert_broadcast, args=(alert_msg,), daemon=True).start()
         else:
             bot.edit_message_text("⚠️ No new or unique numbers were added.", chat_id, message_id)
@@ -424,8 +431,9 @@ def update_cfg(message, key):
     except: pass
 
 def do_broadcast(message):
+    # কাস্টম ব্রডকাস্টকেও ফিক্সড ইঞ্জিনে পাঠানো হলো
     threading.Thread(target=async_stock_alert_broadcast, args=(message.text,), daemon=True).start()
-    bot.send_message(message.chat.id, "✅ Broadcast started in background!")
+    bot.send_message(message.chat.id, "📢 Broadcast started successfully in background!")
 
 def main():
     try: bot.remove_webhook()
@@ -434,4 +442,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
+                        
