@@ -47,7 +47,7 @@ def mask_number(number):
     num_str = str(number).strip()
     return f"{num_str[:-7]}***{num_str[-4:]}" if len(num_str) > 7 else num_str
 
-# ১. গ্রুপের মেসেজ (আগের মতো সব বাটনসহ)
+# গ্রুপ মেসেজ ফাংশন
 def send_to_telegram_group_premium(service, number, otp, full_msg):
     flag, short_name = get_country_info(number)
     lang = detect_language(full_msg)
@@ -65,10 +65,10 @@ def send_to_telegram_group_premium(service, number, otp, full_msg):
             ]
         }
     }
-    try: requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json=payload, timeout=5)
+    try: requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json=payload, timeout=2)
     except: pass
 
-# ২. ইনবক্সের মেসেজ (নতুন ফরম্যাট অনুযায়ী)
+# ইনবক্স মেসেজ ফাংশন
 def send_direct_to_user_inbox(service, number, otp, full_msg):
     current_users = safe_load_json(USER_FILE, {})
     flag, short_name = get_country_info(number)
@@ -86,7 +86,7 @@ def send_direct_to_user_inbox(service, number, otp, full_msg):
                     "parse_mode": "HTML",
                     "reply_markup": {"inline_keyboard": [[{"text": f"🔑 {otp}", "copy_text": {"text": str(otp)}}]]}
                 }
-                try: requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json=payload, timeout=5)
+                try: requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json=payload, timeout=2)
                 except: pass
                 return
 
@@ -96,22 +96,24 @@ def main():
 
     while True:
         try:
-            res = requests.get(API_BASE_URL, params={"token": API_TOKEN, "records": "30"}, timeout=15)
+            res = requests.get(API_BASE_URL, params={"token": API_TOKEN, "records": "30"}, timeout=10)
             if res.status_code == 200:
-                for row in reversed(res.json()):
-                    srv, num, msg = str(row[0]), str(row[1]), str(row[2])
-                    otp_match = re.search(r'\b(\d{4,8})\b', msg)
-                    otp = otp_match.group() if otp_match else "N/A"
-                    uid_key = f"{num}_{otp}"
+                records = res.json()
+                if isinstance(records, list):
+                    for row in reversed(records):
+                        srv, num, msg = str(row[0]), str(row[1]), str(row[2])
+                        otp_match = re.search(r'\b(\d{4,8})\b', msg)
+                        otp = otp_match.group() if otp_match else "N/A"
+                        uid_key = f"{num}_{otp}"
+                        
+                        if uid_key not in LOCAL_PROCESSED_KEYS:
+                            LOCAL_PROCESSED_KEYS.add(uid_key)
+                            send_to_telegram_group_premium(srv, num, otp, msg)
+                            send_direct_to_user_inbox(srv, num, otp, msg)
                     
-                    if uid_key not in LOCAL_PROCESSED_KEYS:
-                        LOCAL_PROCESSED_KEYS.add(uid_key)
-                        send_to_telegram_group_premium(srv, num, otp, msg)
-                        send_direct_to_user_inbox(srv, num, otp, msg)
-                
-                with open(SENT_FILE, 'w', encoding='utf-8') as f:
-                    json.dump(list(LOCAL_PROCESSED_KEYS), f, indent=4)
-            time.sleep(3)
+                    with open(SENT_FILE, 'w', encoding='utf-8') as f:
+                        json.dump(list(LOCAL_PROCESSED_KEYS), f, indent=4)
+            time.sleep(1) # লুপ স্পিড বাড়ানো হয়েছে
         except: time.sleep(5)
 
 if __name__ == "__main__":
