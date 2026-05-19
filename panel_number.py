@@ -17,7 +17,7 @@ OTP_GROUP_ID = -1002295608331
 USER_FILE = 'users_data.json'
 SENT_FILE = 'db_number_panel.json'
 
-SERVICE_ICONS = {"facebook": "🔵 Facebook", "whatsapp": "🟢 WhatsApp", "telegram": "✈️ Telegram"}
+SERVICE_ICONS = {"facebook": "Facebook", "whatsapp": "WhatsApp", "telegram": "Telegram"}
 
 # মেমরি লক (ওটিপি ডাবল হওয়া প্রতিরোধ করার জন্য)
 LOCAL_PROCESSED_KEYS = set()
@@ -29,7 +29,7 @@ def mask_number(number):
 def get_country_info(number):
     """
     phonenumbers লাইব্রেরি ব্যবহার করে পৃথিবীর যেকোনো দেশের নাম 
-    এবং তার সঠিক ফ্ল্যাগ (Flag) স্বয়ংক্রিয়ভাবে বের করার এআই ফাংশন।
+    এবং তার সঠিক ফ্ল্যাগ (Flag) ও ২ অক্ষরের শর্ট নেম (Short Name) বের করার ফাংশন।
     """
     try:
         raw_num = str(number).strip()
@@ -37,21 +37,31 @@ def get_country_info(number):
             raw_num = '+' + raw_num
             
         parsed_num = phonenumbers.parse(raw_num, None)
-        
-        # দেশের নাম বের করা (যেমন: Bangladesh, United States, Zimbabwe)
-        country_name = geocoder.description_for_number(parsed_num, "en")
-        
-        # ২ অক্ষরের কান্ট্রি কোড বের করা (যেমন: BD, US, ZW)
         region_code = phonenumbers.region_code_for_number(parsed_num)
         
         if region_code:
-            # ২ অক্ষরের রিজিয়ন কোড থেকে ইমোজি ফ্ল্যাগ তৈরি করার স্ট্যান্ডার্ড নিয়ম
+            # ২ অক্ষরের রিজিয়ন কোড থেকে ইমোজি ফ্ল্যাগ তৈরি করার নিয়ম
             flag = "".join(chr(ord(c) + 127397) for c in region_code.upper())
-            return flag, country_name
+            return flag, region_code.upper()
     except:
         pass
     
-    return "🌐", "Global / Unknown"
+    return "🌐", "GL"
+
+def detect_language(msg):
+    """
+    মেসেজের ক্যারেক্টার চেক করে স্বয়ংক্রিয়ভাবে ল্যাঙ্গুয়েজ বা ভাষা ডিটেক্ট করার এআই মেথড।
+    """
+    msg_lower = msg.lower()
+    if re.search(r'[া-ীু-ূে-ো]', msg):
+        return "Bangla"
+    elif any(word in msg_lower for word in ["code", "otp", "is", "verification", "your"]):
+        return "English"
+    elif any(word in msg_lower for word in ["код", "подтверждения", "ваш"]):
+        return "Russian"
+    elif any(word in msg_lower for word in ["g-", "tu", "codigo", "verificacion"]):
+        return "Spanish"
+    return "English"
 
 def safe_load_json(file_path, default_value):
     if os.path.exists(file_path):
@@ -62,34 +72,32 @@ def safe_load_json(file_path, default_value):
     return default_value
 
 def send_to_telegram_group_premium(service, number, otp, full_msg):
-    # গ্লোবাল ডাটাবেস থেকে স্বয়ংক্রিয়ভাবে ফ্ল্যাগ এবং দেশের নাম বের করা হচ্ছে
-    flag, country_name = get_country_info(number)
+    # অটোমেটিক ফ্ল্যাগ এবং দেশের ২ অক্ষরের শর্ট নেম বের করা হচ্ছে
+    flag, short_name = get_country_info(number)
+    lang = detect_language(full_msg)
     
     srv_name = service.lower()
-    header = next((v for k, v in SERVICE_ICONS.items() if k in srv_name), f"🔔 {service.upper()}")
+    clean_srv = next((v for k, v in SERVICE_ICONS.items() if k in srv_name), service.upper())
     
-    # গ্রুপ মেসেজ ফরম্যাট
+    # স্ক্রিনশটের হুবহু মেসেজ লেআউট ফরম্যাট (কোনো বাড়তি টেক্সট ছাড়া)
     text = (
-        f"✅ <b>New OTP Received</b>\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"🌍 <b>Country:</b> {flag} {country_name}\n"
-        f"📱 <b>Service:</b> {header}\n"
-        f"📲 <b>Number:</b> <code>{mask_number(number)}</code>\n"
-        f"🔑 <b>OTP Code:</b> <code>{otp}</code>\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"📩 <b>Full Msg:</b>\n"
-        f"<pre>{full_msg}</pre>"
+        f"{flag} <b>{short_name}</b> {clean_srv}\n"
+        f"{mask_number(number)} [<b>{lang}</b>]"
     )
     
+    # ওটিপি ডিরেক্ট বাটন আকারে সাজানো হলো এবং নিচে সাব-বাটন দেওয়া হলো
     payload = {
         "chat_id": OTP_GROUP_ID,
         "text": text,
         "parse_mode": "HTML",
         "reply_markup": {
-            "inline_keyboard": [[
-                {"text": "🔝 Number", "url": "https://t.me/Premium_SMS2_bot"},
-                {"text": "🤖 Methods", "url": "https://t.me/Earning_Tips055"}
-            ]]
+            "inline_keyboard": [
+                [{"text": f"🔑 {otp}", "copy_text": {"text": str(otp)}}], # মেইন ওটিপি কপি বাটন
+                [
+                    {"text": "🔝 Number", "url": "https://t.me/Premium_SMS2_bot"},
+                    {"text": "🤖 Methods", "url": "https://t.me/Earning_Tips055"}
+                ]
+            ]
         }
     }
     try: requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json=payload, timeout=10)
@@ -103,8 +111,8 @@ def send_direct_to_user_inbox(service, number, otp):
     if len(clean_num) < 5: return
     target_part = clean_num[-5:]
     
-    # গ্লোবাল ডাটাবেস থেকে স্বয়ংক্রিয়ভাবে ফ্ল্যাগ এবং দেশের নাম বের করা হচ্ছে
-    flag, country_name = get_country_info(number)
+    # অটোমেটিক ফ্ল্যাগ এবং দেশের ২ অক্ষরের শর্ট নেম বের করা হচ্ছে
+    flag, short_name = get_country_info(number)
 
     for uid, u_info in current_users.items():
         if not isinstance(u_info, dict): continue
@@ -119,18 +127,20 @@ def send_direct_to_user_inbox(service, number, otp):
                         srv_clean = v
                         break
                 
-                # ইনবক্স মেসেজ ফরম্যাট (এখানেও দেশের পূর্ণ নাম ও ফ্ল্যাগ যুক্ত করা হয়েছে)
-                final_msg = (
-                    f"✨ **NEW OTP RECEIVED!**\n"
-                    f"━━━━━━━━━━━━━━━━━━\n"
-                    f"🌍 **Country:** {flag} {country_name}\n"
-                    f"📱 **Service:** {srv_clean}\n"
-                    f"🔢 **Number:** `{num_obj['number']}`\n"
-                    f"🔑 **OTP Code:** `{otp}`\n"
-                    f"━━━━━━━━━━━━━━━━━━"
-                )
+                # ইনবক্স লেআউট (শুধুমাত্র পতাকা, কান্ট্রি শর্ট নেম, সার্ভিস নেম এবং কপি বাটন)
+                inbox_text = f"{flag} <b>{short_name}</b> {srv_clean}"
                 url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-                payload = {"chat_id": int(uid), "text": final_msg, "parse_mode": "Markdown"}
+                
+                payload = {
+                    "chat_id": int(uid),
+                    "text": inbox_text,
+                    "parse_mode": "HTML",
+                    "reply_markup": {
+                        "inline_keyboard": [
+                            [{"text": f"🔑 {otp}", "copy_text": {"text": str(otp)}}] # ১ ক্লিকে কপি ওটিপি বাটন
+                        ]
+                    }
+                }
                 try: requests.post(url, json=payload, timeout=10)
                 except: pass
                 return
