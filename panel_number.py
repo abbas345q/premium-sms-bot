@@ -83,9 +83,10 @@ def send_direct_to_user_inbox(service, number, otp, full_msg):
     for uid, u_info in current_users.items():
         if not isinstance(u_info, dict): continue
         for num_obj in u_info.get("active_numbers", []):
-            user_clean_num = re.sub(r'\D', '', str(num_obj.get("number", "")))
-            if len(user_clean_num) >= 4 and user_clean_num[-4:] in full_msg:
-                inbox_text = f"{flag} <b>{short_name}</b> {srv_clean}\n<code>{number}</code>"
+            # ইউজারের নাম্বারের লাস্ট ৪ ডিজিট চেক করা হচ্ছে
+            user_number = str(num_obj.get("number", ""))
+            if len(user_number) >= 4 and user_number[-4:] in full_msg:
+                inbox_text = f"📩 <b>OTP Received</b>\nService: {srv_clean}\nNumber: <code>{number}</code>"
                 payload = {
                     "chat_id": int(uid),
                     "text": inbox_text,
@@ -94,8 +95,8 @@ def send_direct_to_user_inbox(service, number, otp, full_msg):
                 }
                 try: requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json=payload, timeout=2)
                 except: pass
-                return
-
+                # একটির বেশি ফরওয়ার্ড ঠেকাতে এখানে return বাদ দেওয়া হয়েছে যদি মাল্টিপল ইউজার একই নাম্বার নেয়
+                
 def main():
     initial_list = safe_load_json(SENT_FILE, [])
     for item in initial_list: LOCAL_PROCESSED_KEYS.add(str(item))
@@ -114,7 +115,9 @@ def main():
                         
                         if uid_key not in LOCAL_PROCESSED_KEYS:
                             LOCAL_PROCESSED_KEYS.add(uid_key)
+                            # গ্রুপে পাঠানো
                             send_to_telegram_group_premium(srv, num, otp, msg)
+                            # ইনবক্সে ফরওয়ার্ড করা
                             send_direct_to_user_inbox(srv, num, otp, msg)
                     
                     # ফাইল রাইট করার সময়ও লক ব্যবহার করা হয়েছে
@@ -127,4 +130,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-            
