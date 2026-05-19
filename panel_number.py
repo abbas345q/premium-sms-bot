@@ -3,6 +3,7 @@ import time
 import re
 import json
 import os
+import fcntl # ফাইল লকিং এর জন্য যুক্ত করা হয়েছে
 from datetime import datetime, timedelta
 import phonenumbers
 from phonenumbers import geocoder
@@ -24,7 +25,12 @@ LOCAL_PROCESSED_KEYS = set()
 def safe_load_json(file_path, default_value):
     if not os.path.exists(file_path) or os.path.getsize(file_path) == 0: return default_value
     try:
-        with open(file_path, 'r', encoding='utf-8') as f: return json.load(f)
+        with open(file_path, 'r', encoding='utf-8') as f:
+            # ফাইল লক করা হয়েছে যাতে বট লেখার সময় প্যানেল রিড না করে
+            fcntl.flock(f, fcntl.LOCK_SH)
+            data = json.load(f)
+            fcntl.flock(f, fcntl.LOCK_UN)
+            return data
     except: return default_value
 
 def get_country_info(number):
@@ -111,11 +117,14 @@ def main():
                             send_to_telegram_group_premium(srv, num, otp, msg)
                             send_direct_to_user_inbox(srv, num, otp, msg)
                     
+                    # ফাইল রাইট করার সময়ও লক ব্যবহার করা হয়েছে
                     with open(SENT_FILE, 'w', encoding='utf-8') as f:
+                        fcntl.flock(f, fcntl.LOCK_EX)
                         json.dump(list(LOCAL_PROCESSED_KEYS), f, indent=4)
-            time.sleep(1) # লুপ স্পিড বাড়ানো হয়েছে
+                        fcntl.flock(f, fcntl.LOCK_UN)
+            time.sleep(1) 
         except: time.sleep(5)
 
 if __name__ == "__main__":
     main()
-    
+            
