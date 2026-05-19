@@ -4,6 +4,7 @@ import re
 import json
 import os
 import time
+import threading  # বট স্লো হওয়া রোধ করতে থ্রেডিং যুক্ত করা হয়েছে
 import phonenumbers
 from phonenumbers import geocoder
 
@@ -15,7 +16,8 @@ USER_FILE = 'users_data.json'
 CONFIG_FILE = 'settings.json'
 OTP_GROUP_LINK = "https://t.me/Premium_OTP_chat"
 
-bot = telebot.TeleBot(API_TOKEN, threaded=False)
+# threaded=True করে বটকে মাল্টিটাস্কিংয়ের জন্য প্রস্তুত করা হলো
+bot = telebot.TeleBot(API_TOKEN, threaded=True)
 
 # গ্লোবাল মেমরি ডিকশনারি অ্যাডমিনের ফাইল/টেক্সট আপলোড প্রসেস ট্র্যাকিংয়ের জন্য
 ADMIN_UPLOAD_TEMP = {}
@@ -65,7 +67,7 @@ def detect_country_flag(num_str):
         return "".join(chr(ord(c) + 127397) for c in region.upper()) if region else "📍"
     except: return "📍"
 
-# 🎯 ১. সার্ভিস সিলেকশন স্ক্রিন জেনারেটর
+# সার্ভিস সিলেকশন স্ক্রিন
 def send_service_list(chat_id, message_id=None):
     markup = types.InlineKeyboardMarkup(row_width=1)
     for key, val in SERVICES.items():
@@ -78,7 +80,7 @@ def send_service_list(chat_id, message_id=None):
     else:
         bot.send_message(chat_id, txt, reply_markup=markup, parse_mode="HTML")
 
-# 🎯 ২. নির্দিষ্ট সার্ভিসের ভেতরের দেশসমূহের তালিকা দেখার স্ক্রিন
+# নির্দিষ্ট সার্ভিসের দেশের তালিকা
 def send_country_list(chat_id, service_key, message_id=None):
     curr_db = load_data(DB_FILE, {})
     srv_stock = curr_db.get(service_key, {})
@@ -102,6 +104,16 @@ def send_country_list(chat_id, service_key, message_id=None):
         if message_id: bot.edit_message_text(txt, chat_id, message_id, reply_markup=markup, parse_mode="HTML")
         else: bot.send_message(chat_id, txt, reply_markup=markup, parse_mode="HTML")
     except: pass
+
+# 📌 ব্যাকগ্রাউন্ড নোটিফিকেশন ব্রডকাস্টার ইঞ্জিন (যা বটকে স্লো হতে দেয় না)
+def async_stock_alert_broadcast(alert_msg):
+    all_users = load_data(USER_FILE, {})
+    for u in all_users.keys():
+        try: 
+            bot.send_message(int(u), alert_msg, parse_mode="HTML")
+            time.sleep(0.05)  # প্রতিটি মেসেজের মাঝে নিরাপদ গ্যাপ
+        except: 
+            pass
 
 @bot.message_handler(commands=['start'])
 def handle_start(message):
@@ -208,7 +220,6 @@ def handle_query(call):
         service_key = call.data.replace('show_srv_', '')
         send_country_list(chat_id, service_key, message_id)
 
-    # 🎯 ৩. অ্যাডমিন কর্তৃক নির্দিষ্ট সার্ভিসে স্টক লোড করার ব্যাকএন্ড হ্যান্ডলার (ডুপ্লিকেট প্রোটেকশনসহ)
     elif call.data.startswith('addstock_'):
         srv_target = call.data.replace('addstock_', '')
         admin_id = call.from_user.id
@@ -219,7 +230,7 @@ def handle_query(call):
             return
             
         if admin_id not in ADMIN_UPLOAD_TEMP:
-            bot.answer_callback_query(call.id, "❌ Session expired! Please upload the file/text again.", show_alert=True)
+            bot.answer_callback_query(call.id, "❌ Session expired! Please upload again.", show_alert=True)
             return
             
         found_numbers = ADMIN_UPLOAD_TEMP[admin_id]
@@ -241,7 +252,6 @@ def handle_query(call):
             if c_name not in curr_db[srv_target]: 
                 curr_db[srv_target][c_name] = []
                 
-            # একই সার্ভিসের স্টকে নম্বরটি ডুপ্লিকেট কি না তা যাচাই করা হচ্ছে (অন্য সার্ভিসে থাকলে বাধা দেবে না)
             if clean_r not in curr_db[srv_target][c_name]:
                 curr_db[srv_target][c_name].append(clean_r)
                 notified_sample_country = c_name
@@ -253,7 +263,7 @@ def handle_query(call):
         if added > 0:
             bot.edit_message_text(f"✅ Successfully loaded {added} unique numbers to {SERVICES[srv_target]['name']}.", chat_id, message_id)
             
-            # 🎯 ৪. প্রিমিয়াম গ্লোবাল ইউজার নোটিফিকেশন সিস্টেম ব্রডকাস্ট 📢
+            # প্রিমিয়াম অ্যালার্ট টেক্সট
             alert_msg = (
                 f"📢 <b>New Fresh Stock Added!</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━\n"
@@ -261,18 +271,14 @@ def handle_query(call):
                 f"🌍 <b>Country Added:</b> {notified_sample_country}\n"
                 f"⚡ <b>Status:</b> High Traffic Live Now 🔥\n"
                 f"━━━━━━━━━━━━━━━━━━━\n"
-                f"🎯 <i>সবাই দ্রুত কাজ শুরু করুন এবং ওটিপি সংগ্রহ করুন!</i>"
+                f"🎯 <i>সবাই দ্রুত কাজ শুরু করুন এবং ওটিপি সাবমিট করুন!</i>"
             )
-            all_users = load_data(USER_FILE, {})
-            for u in all_users.keys():
-                try: 
-                    bot.send_message(int(u), alert_msg, parse_mode="HTML")
-                    time.sleep(0.04)
-                except: pass
+            
+            # 🔥 পরিবর্তন: নোটিফিকেশন ব্রডকাস্ট ব্যাকগ্রাউন্ড থ্রেডে পাঠিয়ে দেওয়া হলো, যাতে মূল বট সুপারফাস্ট থাকে।
+            threading.Thread(target=async_stock_alert_broadcast, args=(alert_msg,), daemon=True).start()
         else:
             bot.edit_message_text("⚠️ No new or unique numbers were added. All were duplicates in this service.", chat_id, message_id)
 
-    # 🎯 ৫. ইউজার কর্তৃক নম্বর গেট করার মাল্টি-সার্ভিস ইঞ্জিন মডিউল
     elif call.data.startswith('sel_'):
         data_string = call.data.replace('sel_', '')
         parts = data_string.split('_', 1)
@@ -429,12 +435,9 @@ def update_cfg(message, key):
     except: pass
 
 def do_broadcast(message):
-    for u in load_data(USER_FILE, {}).keys():
-        try: 
-            bot.send_message(int(u), message.text)
-            time.sleep(0.05)
-        except: pass
-    bot.send_message(message.chat.id, "✅ Broadcast Done!")
+    # সাধারণ ব্রডকাস্টকেও থ্রেডে পাঠানো হলো যাতে মেইন প্যানেল স্লো না হয়
+    threading.Thread(target=async_stock_alert_broadcast, args=(message.text,), daemon=True).start()
+    bot.send_message(message.chat.id, "✅ Broadcast started in background!")
 
 def main():
     print("Clearing webhooks and starting bot...")
@@ -445,4 +448,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-        
+            
