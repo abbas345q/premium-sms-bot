@@ -102,16 +102,35 @@ def send_country_list(chat_id, service_key, message_id=None):
         else: bot.send_message(chat_id, txt, reply_markup=markup, parse_mode="HTML")
     except: pass
 
-# 🔥 ব্রডকাস্ট ইঞ্জিনটি সম্পূর্ণরূপে ফিক্স করা হলো (String/Integer ঝামেলামুক্ত)
+# 🔥 শতভাগ ফিক্সড ও আপগ্রেডেড থ্রেড-সেফ ব্রডকাস্ট ইঞ্জিন
 def async_stock_alert_broadcast(alert_msg):
+    # লুপ চালানোর সময় ফাইল লক হয়ে যাওয়া বা ক্র্যাশ এড়াতে তাৎক্ষণিক ডেটা কপি লোড করা হলো
     all_users = load_data(USER_FILE, {})
+    if not all_users:
+        return
+        
     for u in list(all_users.keys()):
+        # আইডি ভ্যালিডেশন এবং স্প্যাম প্রোটেকশন চেক
+        u_str = str(u).strip()
+        if not u_str.isdigit(): 
+            continue
+            
         try: 
-            # আইডিটি টেক্সট বা সংখ্যা যাই হোক, সেটিকে পিওর ইন্টিজারে কনভার্ট করে পাঠানো হচ্ছে
-            clean_uid = int(str(u).strip())
+            clean_uid = int(u_str)
             bot.send_message(clean_uid, alert_msg, parse_mode="HTML")
-            time.sleep(0.05) # এপিআই ফ্লড এড়াতে সামান্য গ্যাপ
-        except: 
+            # টেলিগ্রাম এপিআই লিমিট এড়াতে সেফ টাইম গ্যাপ (প্রতি সেকেন্ডে ২০টির বেশি মেসেজ ব্লক রোধে)
+            time.sleep(0.05) 
+        except telebot.api_helper.ApiTelegramException as e:
+            # ইউজার যদি বট ব্লক করে দেয় তবে এই এক্সেপশনটি লুপ ব্রেক না করে স্কিপ করবে
+            if e.error_code in [403, 400]:
+                pass
+            elif e.error_code == 429:
+                # যদি টেলিগ্রাম থেকে FloodWait লিমিট আসে, তবে বট স্বয়ংক্রিয়ভাবে অপেক্ষা করে আবার কাজ শুরু করবে
+                wait_time = int(re.findall(r'\d+', e.description)[0]) if re.findall(r'\d+', e.description) else 5
+                time.sleep(wait_time + 1)
+                try: bot.send_message(clean_uid, alert_msg, parse_mode="HTML")
+                except: pass
+        except:
             pass
 
 @bot.message_handler(commands=['start'])
@@ -240,7 +259,6 @@ def handle_query(call):
             curr_db[srv_target] = {}
             
         added = 0
-        # 🌍 একাধিক দেশ ট্র্যাক করার জন্য সেট (Set) ব্যবহার করা হলো যেন ডুপ্লিকেট না হয়
         added_countries = set()
         
         for r in found_numbers:
@@ -255,7 +273,7 @@ def handle_query(call):
                 
             if clean_r not in curr_db[srv_target][c_name]:
                 curr_db[srv_target][c_name].append(clean_r)
-                added_countries.add(c_name) # দেশটিকে নোটিফিকেশন ট্র্যাকের সেটে যুক্ত করা হলো
+                added_countries.add(c_name)
                 added += 1
                 
         save_data(DB_FILE, curr_db)
@@ -264,7 +282,6 @@ def handle_query(call):
         if added > 0:
             bot.edit_message_text(f"✅ Successfully loaded {added} unique numbers to {SERVICES[srv_target]['name']}.", chat_id, message_id)
             
-            # 📝 দেশের নামগুলোকে কমা দিয়ে সুন্দর একটি লাইন বা লিস্টে রূপান্তর করা হলো
             countries_list_str = ", ".join(sorted(added_countries))
             
             alert_msg = (
@@ -276,7 +293,6 @@ def handle_query(call):
                 f"━━━━━━━━━━━━━━━━━━━\n"
                 f"🎯 <i>সবাই দ্রুত কাজ শুরু করুন এবং ওটিপি সাবমিট করুন!</i>"
             )
-            # স্টক ব্রডকাস্ট ব্যাকগ্রাউন্ড থ্রেডে পাঠিয়ে দেওয়া হলো ফিক্সড মেকানিজমে
             threading.Thread(target=async_stock_alert_broadcast, args=(alert_msg,), daemon=True).start()
         else:
             bot.edit_message_text("⚠️ No new or unique numbers were added.", chat_id, message_id)
@@ -431,7 +447,6 @@ def update_cfg(message, key):
     except: pass
 
 def do_broadcast(message):
-    # কাস্টম ব্রডকাস্টকেও ফিক্সড ইঞ্জিনে পাঠানো হলো
     threading.Thread(target=async_stock_alert_broadcast, args=(message.text,), daemon=True).start()
     bot.send_message(message.chat.id, "📢 Broadcast started successfully in background!")
 
@@ -442,4 +457,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-                        
+    
