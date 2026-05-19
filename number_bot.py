@@ -4,7 +4,7 @@ import re
 import json
 import os
 import time
-import threading  # বট স্লো হওয়া রোধ করতে থ্রেডিং যুক্ত করা হয়েছে
+import threading
 import phonenumbers
 from phonenumbers import geocoder
 
@@ -16,10 +16,9 @@ USER_FILE = 'users_data.json'
 CONFIG_FILE = 'settings.json'
 OTP_GROUP_LINK = "https://t.me/Premium_OTP_chat"
 
-# threaded=True করে বটকে মাল্টিটাস্কিংয়ের জন্য প্রস্তুত করা হলো
-bot = telebot.TeleBot(API_TOKEN, threaded=True)
+# worker_pool বাড়িয়ে বটকে আরও ফাস্ট করা হলো
+bot = telebot.TeleBot(API_TOKEN, threaded=True, num_threads=10)
 
-# গ্লোবাল মেমরি ডিকশনারি অ্যাডমিনের ফাইল/টেক্সট আপলোড প্রসেস ট্র্যাকিংয়ের জন্য
 ADMIN_UPLOAD_TEMP = {}
 
 SERVICES = {
@@ -67,7 +66,6 @@ def detect_country_flag(num_str):
         return "".join(chr(ord(c) + 127397) for c in region.upper()) if region else "📍"
     except: return "📍"
 
-# সার্ভিস সিলেকশন স্ক্রিন
 def send_service_list(chat_id, message_id=None):
     markup = types.InlineKeyboardMarkup(row_width=1)
     for key, val in SERVICES.items():
@@ -80,7 +78,6 @@ def send_service_list(chat_id, message_id=None):
     else:
         bot.send_message(chat_id, txt, reply_markup=markup, parse_mode="HTML")
 
-# নির্দিষ্ট সার্ভিসের দেশের তালিকা
 def send_country_list(chat_id, service_key, message_id=None):
     curr_db = load_data(DB_FILE, {})
     srv_stock = curr_db.get(service_key, {})
@@ -105,13 +102,12 @@ def send_country_list(chat_id, service_key, message_id=None):
         else: bot.send_message(chat_id, txt, reply_markup=markup, parse_mode="HTML")
     except: pass
 
-# 📌 ব্যাকগ্রাউন্ড নোটিফিকেশন ব্রডকাস্টার ইঞ্জিন (যা বটকে স্লো হতে দেয় না)
 def async_stock_alert_broadcast(alert_msg):
     all_users = load_data(USER_FILE, {})
     for u in all_users.keys():
         try: 
             bot.send_message(int(u), alert_msg, parse_mode="HTML")
-            time.sleep(0.05)  # প্রতিটি মেসেজের মাঝে নিরাপদ গ্যাপ
+            time.sleep(0.04)
         except: 
             pass
 
@@ -203,6 +199,10 @@ def handle_all(message):
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
+    # ⚡ ইনলাইন বাটন সুপারফাস্ট করার জন্য ক্লিক করার সাথে সাথে সিগন্যাল রিলিজ করা হলো
+    try: bot.answer_callback_query(call.id)
+    except: pass
+
     chat_id = call.message.chat.id
     message_id = call.message.message_id
     uid = str(call.from_user.id)
@@ -229,9 +229,7 @@ def handle_query(call):
             bot.edit_message_text("❌ Upload Session Cancelled.", chat_id, message_id)
             return
             
-        if admin_id not in ADMIN_UPLOAD_TEMP:
-            bot.answer_callback_query(call.id, "❌ Session expired! Please upload again.", show_alert=True)
-            return
+        if admin_id not in ADMIN_UPLOAD_TEMP: return
             
         found_numbers = ADMIN_UPLOAD_TEMP[admin_id]
         curr_db = load_data(DB_FILE, {})
@@ -263,7 +261,6 @@ def handle_query(call):
         if added > 0:
             bot.edit_message_text(f"✅ Successfully loaded {added} unique numbers to {SERVICES[srv_target]['name']}.", chat_id, message_id)
             
-            # প্রিমিয়াম অ্যালার্ট টেক্সট
             alert_msg = (
                 f"📢 <b>New Fresh Stock Added!</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━\n"
@@ -273,11 +270,9 @@ def handle_query(call):
                 f"━━━━━━━━━━━━━━━━━━━\n"
                 f"🎯 <i>সবাই দ্রুত কাজ শুরু করুন এবং ওটিপি সাবমিট করুন!</i>"
             )
-            
-            # 🔥 পরিবর্তন: নোটিফিকেশন ব্রডকাস্ট ব্যাকগ্রাউন্ড থ্রেডে পাঠিয়ে দেওয়া হলো, যাতে মূল বট সুপারফাস্ট থাকে।
             threading.Thread(target=async_stock_alert_broadcast, args=(alert_msg,), daemon=True).start()
         else:
-            bot.edit_message_text("⚠️ No new or unique numbers were added. All were duplicates in this service.", chat_id, message_id)
+            bot.edit_message_text("⚠️ No new or unique numbers were added.", chat_id, message_id)
 
     elif call.data.startswith('sel_'):
         data_string = call.data.replace('sel_', '')
@@ -291,7 +286,7 @@ def handle_query(call):
         srv_stock = curr_db.get(service_key, {}).get(country, [])
         
         if len(srv_stock) < 1:
-            bot.answer_callback_query(call.id, "❌ স্টক শেষ!", show_alert=True)
+            bot.send_message(chat_id, "❌ এই দেশের স্টক শেষ হয়ে গেছে!")
             return
             
         users = load_data(USER_FILE, {})
@@ -312,9 +307,7 @@ def handle_query(call):
         save_data(DB_FILE, curr_db)
         save_data(USER_FILE, users)
         
-        if not delivered_numbers:
-            bot.answer_callback_query(call.id, "❌ স্টক শেষ!", show_alert=True)
-            return
+        if not delivered_numbers: return
 
         raw_keyboard = []
         flag_icon = country.split()[0] if country.split() else "🌍"
@@ -334,13 +327,15 @@ def handle_query(call):
         custom_markup = {"inline_keyboard": raw_keyboard}
         msg_text = f"🌍 **Country:** {country}\n⚙️ **Service:** {SERVICES[service_key]['icon']} {SERVICES[service_key]['name']}\n━━━━━━━━━━━━━━\n⏳ **Waiting for OTP...**"
         
-        bot.edit_message_text(
-            text=msg_text, 
-            chat_id=chat_id, 
-            message_id=message_id, 
-            reply_markup=json.dumps(custom_markup), 
-            parse_mode="Markdown"
-        )
+        try:
+            bot.edit_message_text(
+                text=msg_text, 
+                chat_id=chat_id, 
+                message_id=message_id, 
+                reply_markup=json.dumps(custom_markup), 
+                parse_mode="Markdown"
+            )
+        except: pass
 
     elif call.data == "back_c":
         send_service_list(chat_id, message_id)
@@ -351,9 +346,7 @@ def handle_query(call):
         filename = "live_stock.txt"
         try:
             with open(filename, "w", encoding="utf-8") as f:
-                f.write("📊 PREMIUM SMS BOT - LIVE UNUSED STOCK REPORT\n")
-                f.write(f"📅 Generated on: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+                f.write("📊 PREMIUM SMS BOT - LIVE STOCK REPORT\n\n")
                 for s_key, s_val in SERVICES.items():
                     f.write(f"=== {s_val['name']} Stock ===\n")
                     srv_stock = curr_db.get(s_key, {})
@@ -364,14 +357,11 @@ def handle_query(call):
                     f.write("\n")
             with open(filename, "rb") as doc:
                 bot.send_document(chat_id, doc, caption="📊 Live data stock file.")
-            bot.answer_callback_query(call.id, "✅ Stock exported successfully!")
-        except Exception as e:
-            bot.send_message(chat_id, f"❌ File creation error: {e}")
+        except Exception as e: pass
         finally:
             if os.path.exists(filename): os.remove(filename)
 
     elif call.data == "conf_clear":
-        curr_db = load_data(DB_FILE, {})
         markup = types.InlineKeyboardMarkup(row_width=1)
         for s_key, s_val in SERVICES.items():
             markup.add(types.InlineKeyboardButton(f"🗑️ Clear {s_val['name']} Stock", callback_data=f"rmvsrv_{s_key}"))
@@ -384,7 +374,6 @@ def handle_query(call):
         if srv_to_rm in curr_db:
             curr_db[srv_to_rm] = {}
             save_data(DB_FILE, curr_db)
-            bot.answer_callback_query(call.id, f"✅ {SERVICES[srv_to_rm]['name']} stock cleared!")
             admin_settings(call.message)
 
     elif call.data == "back_settings":
@@ -435,17 +424,14 @@ def update_cfg(message, key):
     except: pass
 
 def do_broadcast(message):
-    # সাধারণ ব্রডকাস্টকেও থ্রেডে পাঠানো হলো যাতে মেইন প্যানেল স্লো না হয়
     threading.Thread(target=async_stock_alert_broadcast, args=(message.text,), daemon=True).start()
     bot.send_message(message.chat.id, "✅ Broadcast started in background!")
 
 def main():
-    print("Clearing webhooks and starting bot...")
     try: bot.remove_webhook()
     except: pass
-    print("Shop Bot is successfully running online via Master...")
     bot.infinity_polling(none_stop=True, timeout=60, long_polling_timeout=30)
 
 if __name__ == "__main__":
     main()
-            
+    
