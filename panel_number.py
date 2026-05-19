@@ -29,7 +29,7 @@ def mask_number(number):
 def get_country_info(number):
     """
     phonenumbers লাইব্রেরি ব্যবহার করে পৃথিবীর যেকোনো দেশের নাম 
-    এবং তার সঠিক ফ্ল্যাগ (Flag) ও ২ অক্ষরের শর্ট নেম (Short Name) বের করার ফাংশন Bug-Free মেথডে।
+    এবং তার সঠিক ফ্ল্যাগ (Flag) ও ২ অক্ষরের শর্ট নেম (Short Name) বের করার ফাংশন।
     """
     try:
         raw_num = str(number).strip()
@@ -40,7 +40,6 @@ def get_country_info(number):
         region_code = phonenumbers.region_code_for_number(parsed_num)
         
         if region_code:
-            # ২ অক্ষরের রিজিয়ন কোড থেকে ইমোজি ফ্ল্যাগ তৈরি করার স্ট্যান্ডার্ড এপিআই নিয়ম
             flag = "".join(chr(ord(c) + 127397) for c in region_code.upper())
             return flag, region_code.upper()
     except:
@@ -50,7 +49,7 @@ def get_country_info(number):
 
 def detect_language(msg):
     """
-    মেсеজের ক্যারেক্টার চেক করে স্বয়ংক্রিয়ভাবে ল্যাঙ্গুয়েজ বা ভাষা ডিটেক্ট করার এআই মেথড।
+    মেসেজের ক্যারেক্টার চেক করে স্বয়ংক্রিয়ভাবে ল্যাঙ্গুয়েজ বা ভাষা ডিটেক্ট করার এআই মেথড।
     """
     msg_lower = msg.lower()
     if re.search(r'[া-ীু-ূে-ো]', msg):
@@ -72,27 +71,24 @@ def safe_load_json(file_path, default_value):
     return default_value
 
 def send_to_telegram_group_premium(service, number, otp, full_msg):
-    # অটোমেটিক ফ্ল্যাগ এবং দেশের ২ অক্ষরের শর্ট নেম বের করা হচ্ছে
     flag, short_name = get_country_info(number)
     lang = detect_language(full_msg)
     
     srv_name = service.lower()
     clean_srv = next((v for k, v in SERVICE_ICONS.items() if k in srv_name), service.upper())
     
-    # স্ক্রিনশটের হুবহু মেসেজ লেআউট ফরম্যাট (কোনো বাড়তি টেক্সট ছাড়া)
     text = (
         f"{flag} <b>{short_name}</b> {clean_srv}\n"
         f"{mask_number(number)} [<b>{lang}</b>]"
     )
     
-    # ওটিপি ডিরেক্ট বাটন আকারে সাজানো হলো এবং নিচে সাব-বাটন দেওয়া হলো
     payload = {
         "chat_id": OTP_GROUP_ID,
         "text": text,
         "parse_mode": "HTML",
         "reply_markup": {
             "inline_keyboard": [
-                [{"text": f"🔑 {otp}", "copy_text": {"text": str(otp)}}], # মেইন ওটিপি কপি বাটন
+                [{"text": f"🔑 {otp}", "copy_text": {"text": str(otp)}}],
                 [
                     {"text": "🔝 Number", "url": "https://t.me/Premium_SMS2_bot"},
                     {"text": "🤖 Methods", "url": "https://t.me/Earning_Tips055"}
@@ -103,7 +99,6 @@ def send_to_telegram_group_premium(service, number, otp, full_msg):
     try: requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json=payload, timeout=10)
     except: pass
 
-# 🎯 ইনবক্স ফরোয়ার্ডিং ফাংশন মডিফিকেশন (১০০% পারফেক্ট ও নিখুঁত করা হয়েছে)
 def send_direct_to_user_inbox(service, number, otp):
     current_users = safe_load_json(USER_FILE, {})
     if not current_users: return
@@ -112,7 +107,6 @@ def send_direct_to_user_inbox(service, number, otp):
     if len(clean_num) < 5: return
     target_part = clean_num[-5:]
     
-    # অটোমেটিক ফ্ল্যাগ এবং দেশের ২ অক্ষরের শর্ট নেম বের করা হচ্ছে
     flag, short_name = get_country_info(number)
 
     for uid, u_info in current_users.items():
@@ -128,7 +122,6 @@ def send_direct_to_user_inbox(service, number, otp):
                         srv_clean = v
                         break
                 
-                # 📌 ইউজারের ইনবক্স মেসেজ লেআউটে এখন থেকে সুন্দরভাবে নম্বরটিও শো করবে
                 inbox_text = (
                     f"{flag} <b>{short_name}</b> {srv_clean}\n"
                     f"<code>{num_obj['number']}</code>"
@@ -141,7 +134,7 @@ def send_direct_to_user_inbox(service, number, otp):
                     "parse_mode": "HTML",
                     "reply_markup": {
                         "inline_keyboard": [
-                            [{"text": f"🔑 {otp}", "copy_text": {"text": str(otp)}}] # ১ ক্লিকে ওটিপি কপি বাটন
+                            [{"text": f"🔑 {otp}", "copy_text": {"text": str(otp)}}]
                         ]
                     }
                 }
@@ -172,8 +165,13 @@ def main():
                         if len(row) >= 3:
                             srv, num, msg = str(row[0]).strip(), str(row[1]).strip(), str(row[2]).strip()
                             
-                            otp_match = re.search(r'\b(\d{4,8})\b', msg)
-                            otp = otp_match.group() if otp_match else "N/A"
+                            # ওটিপি ডিটেকশন লজিক আপডেট করা হয়েছে
+                            otp_match = re.search(r'\b(\d{3,4}[-\s]?\d{3,4})\b', msg)
+                            if otp_match:
+                                otp = otp_match.group()
+                            else:
+                                fallback_match = re.search(r'\b(\d{4,8})\b', msg)
+                                otp = fallback_match.group() if fallback_match else "N/A"
                             
                             uid_key = f"{num}_{otp}"
                             
@@ -182,10 +180,7 @@ def main():
                                 
                                 print(f"🔥 [NEW OTP] Processing {num} -> Country Detected automatically")
                                 
-                                # গ্রুপে পাঠানো হচ্ছে 
                                 send_to_telegram_group_premium(srv, num, otp, msg)
-                                
-                                # ইউজারের ইনবক্সে পুশ করা হচ্ছে
                                 send_direct_to_user_inbox(srv, num, otp)
                                 
                                 new_found = True
@@ -196,10 +191,10 @@ def main():
                                 json.dump(list(LOCAL_PROCESSED_KEYS), f, indent=4)
                         except: pass
             
-            time.sleep(3) 
+            time.sleep(2) 
         except Exception as e:
-            time.sleep(4)
+            time.sleep(2)
 
 if __name__ == "__main__":
     main()
-                                            
+        
