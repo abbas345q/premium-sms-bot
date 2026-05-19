@@ -151,7 +151,6 @@ def handle_all(message):
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
-    # বাটন দ্রুত রেসপন্সের জন্য
     bot.answer_callback_query(call.id)
     chat_id, message_id = call.message.chat.id, call.message.message_id
     
@@ -165,19 +164,15 @@ def handle_query(call):
         srv = call.data.replace('export_', '')
         curr_db = load_data(DB_FILE, {})
         srv_stock = curr_db.get(srv, {})
-        
         all_nums = []
         for country, nums in srv_stock.items():
             all_nums.extend(nums)
-            
         if not all_nums:
             bot.answer_callback_query(call.id, "❌ Empty Stock!")
             return
-            
         file_name = f"{srv}_stock.txt"
         with open(file_name, 'w') as f:
             f.write("\n".join(all_nums))
-        
         with open(file_name, 'rb') as f:
             bot.send_document(chat_id, f)
         os.remove(file_name)
@@ -190,7 +185,6 @@ def handle_query(call):
         found_numbers = ADMIN_UPLOAD_TEMP.get(call.from_user.id, [])
         curr_db = load_data(DB_FILE, {})
         if srv_target not in curr_db: curr_db[srv_target] = {}
-        
         added_report = {}
         total_added = 0
         for r in found_numbers:
@@ -199,13 +193,11 @@ def handle_query(call):
             try: name = geocoder.description_for_number(phonenumbers.parse(clean_r), "en")
             except: name = "Unknown"
             c_name = f"{flag} {name}" if name != "Unknown" else f"📍 Zone +{clean_r[1:4]}"
-            
             if c_name not in curr_db[srv_target]: curr_db[srv_target][c_name] = []
             if clean_r not in curr_db[srv_target][c_name]:
                 curr_db[srv_target][c_name].append(clean_r)
                 added_report[c_name] = added_report.get(c_name, 0) + 1
                 total_added += 1
-                
         save_data(DB_FILE, curr_db)
         report = f"✅ <b>Stock Updated!</b>\n🛠 <b>Service:</b> {SERVICES[srv_target]['name']}\n🔢 <b>Total:</b> {total_added}\n\n"
         for country, count in added_report.items():
@@ -218,18 +210,30 @@ def handle_query(call):
         srv, country = parts[0], parts[1]
         curr_db = load_data(DB_FILE, {})
         srv_stock = curr_db.get(srv, {}).get(country, [])
-        
         if len(srv_stock) < 3:
             bot.send_message(chat_id, "❌ অন্তত ৩টি নাম্বার প্রয়োজন!")
             return
-            
-        # একসাথে ৩টি নাম্বার নেওয়া
         selected_numbers = [str(srv_stock.pop(0)) for _ in range(3)]
         curr_db[srv][country] = srv_stock
         save_data(DB_FILE, curr_db)
-        
         users = load_data(USER_FILE, {})
         uid = str(call.from_user.id)
         if uid not in users:
-            users[uid] = {"balance": 0.0, "ref_count": 0, "name": call.from_user.first_name, "joined": True
+            users[uid] = {"balance": 0.0, "ref_count": 0, "name": call.from_user.first_name, "joined": True, "active_numbers": []}
+        if "active_numbers" not in users[uid]: users[uid]["active_numbers"] = []
+        for num in selected_numbers:
+            users[uid]["active_numbers"].append({"number": num, "service": srv})
+        save_data(USER_FILE, users)
         
+        raw_keyboard = []
+        for num in selected_numbers:
+            raw_keyboard.append([{"text": f"{country.split()[0]} {num}", "copy_text": {"text": str(num)}}])
+        raw_keyboard.append([{"text": "🔄 CHANGE NUMBERS", "callback_data": f"sel_{srv}_{country}"}])
+        raw_keyboard.append([{"text": "🌐 CHANGE COUNTRY", "callback_data": f"show_srv_{srv}"}])
+        raw_keyboard.append([{"text": "🚀 GET OTP", "url": OTP_GROUP_LINK}])
+        msg = f"🌍 {country}\n⚙️ {SERVICES[srv]['name']}\n\n✅ ৩টি নাম্বার এক্টিভ হয়েছে!\n⏳ Waiting for OTP..."
+        bot.edit_message_text(msg, chat_id, message_id, reply_markup=json.dumps({"inline_keyboard": raw_keyboard}), parse_mode="Markdown")
+
+if __name__ == "__main__":
+    bot.infinity_polling(none_stop=True)
+    
