@@ -12,7 +12,7 @@ from phonenumbers import geocoder
 API_TOKEN = '7634786660:AAHvY09ndmYnO6pLpz_84rSLqGUEMlfwNd4'
 ADMIN_ID = 6781949890
 DB_FILE = 'numbers_db.json'
-USER_FILE = 'users_data.json'
+USER_FILE = 'Users_data.json'  # ফাইল নেম ফিক্স করা হয়েছে (U বড় হাতের)
 CONFIG_FILE = 'settings.json'
 OTP_GROUP_LINK = "https://t.me/Premium_OTP_chat"
 
@@ -102,35 +102,18 @@ def send_country_list(chat_id, service_key, message_id=None):
         else: bot.send_message(chat_id, txt, reply_markup=markup, parse_mode="HTML")
     except: pass
 
-# 🔥 সম্পূর্ণরূপে ১০০% ওয়ার্কিং এবং ফিক্সড ব্রডকাস্ট ইঞ্জিন
+# --- নতুন সিম্পল ব্রডকাস্ট ইঞ্জিন ---
 def async_stock_alert_broadcast(alert_msg):
-    # users_data.json থেকে একদম তাজা ডাটা রিড করা হলো
-    all_users = load_data(USER_FILE, {})
-    if not all_users or not isinstance(all_users, dict):
-        return
-
-    # সরাসরি ডিকশনারির প্রতিটা Key (যা মূলত ইউজার আইডি) ধরে লুপ চালানো হচ্ছে
-    for user_id_key in list(all_users.keys()):
+    # ইউজার ফাইল লোড করা
+    users_data = load_data(USER_FILE, {})
+    
+    # আইডিগুলো লুপ চালানো
+    for uid in users_data.keys():
         try:
-            # আইডিটি টেক্সট বা সংখ্যা যাই হোক, সেটিকে পিওর সংখ্যায় ক্লিন করা হলো
-            clean_uid = int(str(user_id_key).strip())
-            
-            # সরাসরি ইউজারের আইডিতে মেসেজ ফরওয়ার্ড/সেন্ড করা হচ্ছে
-            bot.send_message(chat_id=clean_uid, text=alert_msg, parse_mode="HTML")
-            
-            # টেলিগ্রাম এপিআই লিমিট বা ফ্লড প্রোটেকশন এড়াতে নিরাপদ ছোট গ্যাপ
-            time.sleep(0.05)
-        except telebot.api_helper.ApiTelegramException as e:
-            # ইউজার বট ব্লক করে দিলে বা চ্যাট ডিলিট করলে যেন পুরো লুপ ক্র্যাশ না করে
-            if e.error_code in [403, 400]:
-                pass
-            elif e.error_code == 429:
-                # এপিআই লিমিট ওভার হলে বট নিজে থেকে কিছু সেকেন্ড ওয়েট করে আবার চালু হবে
-                time.sleep(6)
-                try: bot.send_message(chat_id=int(str(user_id_key).strip()), text=alert_msg, parse_mode="HTML")
-                except: pass
-        except:
-            pass
+            bot.send_message(chat_id=int(uid), text=alert_msg, parse_mode="HTML")
+            time.sleep(0.1) # এপিআই ফ্লড এড়াতে বিরতি
+        except Exception:
+            continue
 
 @bot.message_handler(commands=['start'])
 def handle_start(message):
@@ -456,4 +439,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-        
