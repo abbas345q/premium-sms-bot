@@ -226,7 +226,7 @@ def handle_query(call):
             curr_db[srv_target] = {}
             
         added = 0
-        added_data = {} # দেশের নাম এবং সংখ্যা ট্র্যাক করার জন্য
+        added_data = {}
         
         for r in found_numbers:
             clean_r = "+" + r.lstrip('+')
@@ -267,38 +267,28 @@ def handle_query(call):
         srv_stock = curr_db.get(service_key, {}).get(country, [])
         
         if len(srv_stock) < 1:
-            bot.send_message(chat_id, "❌ এই দেশের স্টক শেষ হয়ে গেছে!")
+            bot.edit_message_text(f"❌ {country} এর স্টক শেষ হয়ে গেছে!", chat_id, message_id)
             return
             
-        users = load_data(USER_FILE, {})
-        if uid not in users: 
-            users[uid] = {"balance": 0.0, "ref_count": 0, "name": call.from_user.first_name, "joined": True, "active_numbers": []}
-        
-        users[uid]["active_numbers"] = []
-        delivered_numbers = []
-        take_count = min(3, len(srv_stock))
-        
-        for _ in range(take_count):
-            if srv_stock:
-                raw_num = str(srv_stock.pop(0))
-                delivered_numbers.append(raw_num)
-                users[uid]["active_numbers"].append({"number": raw_num, "country": country})
-        
+        raw_num = str(srv_stock.pop(0))
         curr_db[service_key][country] = srv_stock
         save_data(DB_FILE, curr_db)
-        save_data(USER_FILE, users)
         
-        if not delivered_numbers: return
-
-        raw_keyboard = []
+        # বাটন লেআউট
+        markup = types.InlineKeyboardMarkup(row_width=1)
         flag_icon = country.split()[0] if country.split() else "🌍"
-        for num in delivered_numbers:
-            raw_keyboard.append([{"text": f"{flag_icon} {num}", "copy_text": {"text": str(num)}}])
-            
-        raw_keyboard.append([{"text": "🔄 CHANGE", "callback_data": f"show_srv_{service_key}"}])
-        raw_keyboard.append([{"text": "🚀 GET OTP", "url": OTP_GROUP_LINK}])
         
-        bot.edit_message_text(f"🌍 **Country:** {country}\n⚙️ **Service:** {SERVICES[service_key]['name']}\n⏳ **Waiting for OTP...**", chat_id, message_id, reply_markup=json.dumps({"inline_keyboard": raw_keyboard}), parse_mode="Markdown")
+        # নাম্বার বাটন
+        markup.add(types.InlineKeyboardButton(f"{flag_icon} {raw_num}", callback_data="none"))
+        
+        # তিনটি বাটন
+        markup.add(
+            types.InlineKeyboardButton("🔄 Change Number", callback_data=f"sel_{service_key}_{country}"),
+            types.InlineKeyboardButton("🌍 Change Country", callback_data=f"show_srv_{service_key}"),
+            types.InlineKeyboardButton("🚀 Get OTP", url=OTP_GROUP_LINK)
+        )
+        
+        bot.edit_message_text(f"🌍 **Country:** {country}\n⚙️ **Service:** {SERVICES[service_key]['name']}\n⏳ **Waiting for OTP...**", chat_id, message_id, reply_markup=markup, parse_mode="Markdown")
 
     elif call.data == "conf_export":
         if int(uid) != ADMIN_ID: return
@@ -365,4 +355,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-        
+    
