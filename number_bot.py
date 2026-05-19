@@ -16,6 +16,7 @@ USER_FILE = 'users_data.json'
 CONFIG_FILE = 'settings.json'
 OTP_GROUP_LINK = "https://t.me/Premium_OTP_chat"
 
+# মাল্টি-থ্রেডিং ১০ দেওয়া হলো স্পিড ধরে রাখার জন্য
 bot = telebot.TeleBot(API_TOKEN, threaded=True, num_threads=10)
 
 ADMIN_UPLOAD_TEMP = {}
@@ -101,6 +102,18 @@ def send_country_list(chat_id, service_key, message_id=None):
         else: bot.send_message(chat_id, txt, reply_markup=markup, parse_mode="HTML")
     except: pass
 
+# 🔥 ব্রডকাস্ট ইঞ্জিনটি সম্পূর্ণরূপে ফিক্স করা হলো (String/Integer ঝামেলামুক্ত)
+def async_stock_alert_broadcast(alert_msg):
+    all_users = load_data(USER_FILE, {})
+    for u in list(all_users.keys()):
+        try: 
+            # আইডিটি টেক্সট বা সংখ্যা যাই হোক, সেটিকে পিওর ইন্টিজারে কনভার্ট করে পাঠানো হচ্ছে
+            clean_uid = int(str(u).strip())
+            bot.send_message(clean_uid, alert_msg, parse_mode="HTML")
+            time.sleep(0.05) # এপিআই ফ্লড এড়াতে সামান্য গ্যাপ
+        except: 
+            pass
+
 @bot.message_handler(commands=['start'])
 def handle_start(message):
     uid = str(message.from_user.id)
@@ -138,7 +151,8 @@ def admin_settings(message):
         types.InlineKeyboardButton("🏧 Set Min Withdraw", callback_data="conf_with"),
         types.InlineKeyboardButton("⚙️ Manage Channels", callback_data="conf_chan"),
         types.InlineKeyboardButton("📊 Export Available Stock", callback_data="conf_export"),
-        types.InlineKeyboardButton("🗑️ Clear Stock", callback_data="conf_clear")
+        types.InlineKeyboardButton("🗑️ Clear Stock", callback_data="conf_clear"),
+        types.InlineKeyboardButton("📢 Broadcast Message", callback_data="conf_bc")
     )
     text = (f"🛠 **Admin Control Panel**\n\n💰 Refer Bonus: {config['ref_bonus']} BDT\n🏧 Min Withdraw: {config['min_withdraw']} BDT")
     bot.send_message(message.chat.id, text, reply_markup=markup)
@@ -226,7 +240,8 @@ def handle_query(call):
             curr_db[srv_target] = {}
             
         added = 0
-        added_data = {}
+        # 🌍 একাধিক দেশ ট্র্যাক করার জন্য সেট (Set) ব্যবহার করা হলো যেন ডুপ্লিকেট না হয়
+        added_countries = set()
         
         for r in found_numbers:
             clean_r = "+" + r.lstrip('+')
@@ -240,119 +255,190 @@ def handle_query(call):
                 
             if clean_r not in curr_db[srv_target][c_name]:
                 curr_db[srv_target][c_name].append(clean_r)
-                if c_name not in added_data: added_data[c_name] = 0
-                added_data[c_name] += 1
+                added_countries.add(c_name) # দেশটিকে নোটিফিকেশন ট্র্যাকের সেটে যুক্ত করা হলো
                 added += 1
                 
         save_data(DB_FILE, curr_db)
         del ADMIN_UPLOAD_TEMP[admin_id]
         
         if added > 0:
-            stats = "\n".join([f"• {k}: {v} numbers" for k, v in added_data.items()])
-            notification = (f"✅ <b>Stock Added!</b>\n\n"
-                            f"🛠 <b>Service:</b> {SERVICES[srv_target]['name']}\n"
-                            f"🔢 <b>Total Added:</b> {added}\n\n"
-                            f"{stats}")
-            bot.edit_message_text(notification, chat_id, message_id, parse_mode="HTML")
+            bot.edit_message_text(f"✅ Successfully loaded {added} unique numbers to {SERVICES[srv_target]['name']}.", chat_id, message_id)
+            
+            # 📝 দেশের নামগুলোকে কমা দিয়ে সুন্দর একটি লাইন বা লিস্টে রূপান্তর করা হলো
+            countries_list_str = ", ".join(sorted(added_countries))
+            
+            alert_msg = (
+                f"📢 <b>New Fresh Stock Added!</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━\n"
+                f"🛠 <b>Service:</b> {SERVICES[srv_target]['icon']} {SERVICES[srv_target]['name']}\n"
+                f"🌍 <b>Countries Added:</b> {countries_list_str}\n"
+                f"⚡ <b>Status:</b> High Traffic Live Now 🔥\n"
+                f"━━━━━━━━━━━━━━━━━━━\n"
+                f"🎯 <i>সবাই দ্রুত কাজ শুরু করুন এবং ওটিপি সাবমিট করুন!</i>"
+            )
+            # স্টক ব্রডকাস্ট ব্যাকগ্রাউন্ড থ্রেডে পাঠিয়ে দেওয়া হলো ফিক্সড মেকানিজমে
+            threading.Thread(target=async_stock_alert_broadcast, args=(alert_msg,), daemon=True).start()
         else:
             bot.edit_message_text("⚠️ No new or unique numbers were added.", chat_id, message_id)
 
     elif call.data.startswith('sel_'):
         data_string = call.data.replace('sel_', '')
         parts = data_string.split('_', 1)
+        
         if len(parts) < 2: return
-        service_key, country = parts[0], parts[1]
+        service_key = parts[0]
+        country = parts[1]
         
         curr_db = load_data(DB_FILE, {})
         srv_stock = curr_db.get(service_key, {}).get(country, [])
         
         if len(srv_stock) < 1:
-            bot.edit_message_text(f"❌ {country} এর স্টক শেষ হয়ে গেছে!", chat_id, message_id)
+            bot.send_message(chat_id, "❌ এই দেশের স্টক শেষ হয়ে গেছে!")
             return
             
-        raw_num = str(srv_stock.pop(0))
+        users = load_data(USER_FILE, {})
+        if uid not in users: 
+            users[uid] = {"balance": 0.0, "ref_count": 0, "name": call.from_user.first_name, "joined": True, "active_numbers": []}
+        
+        users[uid]["active_numbers"] = []
+        delivered_numbers = []
+        take_count = min(3, len(srv_stock))
+        
+        for _ in range(take_count):
+            if srv_stock:
+                raw_num = str(srv_stock.pop(0))
+                delivered_numbers.append(raw_num)
+                users[uid]["active_numbers"].append({"number": raw_num, "country": country})
+        
         curr_db[service_key][country] = srv_stock
         save_data(DB_FILE, curr_db)
+        save_data(USER_FILE, users)
         
-        # বাটন লেআউট
-        markup = types.InlineKeyboardMarkup(row_width=1)
+        if not delivered_numbers: return
+
+        raw_keyboard = []
         flag_icon = country.split()[0] if country.split() else "🌍"
         
-        # নাম্বার বাটন
-        markup.add(types.InlineKeyboardButton(f"{flag_icon} {raw_num}", callback_data="none"))
+        for num in delivered_numbers:
+            btn_text = f"{flag_icon} {num}"
+            number_button = {
+                "text": btn_text,
+                "copy_text": {"text": str(num)}
+            }
+            raw_keyboard.append([number_button])
+            
+        raw_keyboard.append([{"text": "🔄 CHANGE NUMBERS", "callback_data": f"show_srv_{service_key}"}])
+        raw_keyboard.append([{"text": "🌐 CHANGE COUNTRY", "callback_data": f"show_srv_{service_key}"}])
+        raw_keyboard.append([{"text": "🚀 GET OTP", "url": OTP_GROUP_LINK}])
         
-        # তিনটি বাটন
-        markup.add(
-            types.InlineKeyboardButton("🔄 Change Number", callback_data=f"sel_{service_key}_{country}"),
-            types.InlineKeyboardButton("🌍 Change Country", callback_data=f"show_srv_{service_key}"),
-            types.InlineKeyboardButton("🚀 Get OTP", url=OTP_GROUP_LINK)
-        )
+        custom_markup = {"inline_keyboard": raw_keyboard}
+        msg_text = f"🌍 **Country:** {country}\n⚙️ **Service:** {SERVICES[service_key]['icon']} {SERVICES[service_key]['name']}\n━━━━━━━━━━━━━━\n⏳ **Waiting for OTP...**"
         
-        bot.edit_message_text(f"🌍 **Country:** {country}\n⚙️ **Service:** {SERVICES[service_key]['name']}\n⏳ **Waiting for OTP...**", chat_id, message_id, reply_markup=markup, parse_mode="Markdown")
+        try:
+            bot.edit_message_text(
+                text=msg_text, 
+                chat_id=chat_id, 
+                message_id=message_id, 
+                reply_markup=json.dumps(custom_markup), 
+                parse_mode="Markdown"
+            )
+        except: pass
+
+    elif call.data == "back_c":
+        send_service_list(chat_id, message_id)
 
     elif call.data == "conf_export":
         if int(uid) != ADMIN_ID: return
         curr_db = load_data(DB_FILE, {})
         filename = "live_stock.txt"
-        with open(filename, "w", encoding="utf-8") as f:
-            for s_key, s_val in SERVICES.items():
-                f.write(f"=== {s_val['name']} ===\n")
-                for c, nums in curr_db.get(s_key, {}).items():
-                    f.write(f"{c}: {len(nums)}\n")
-        with open(filename, "rb") as doc: bot.send_document(chat_id, doc)
-        os.remove(filename)
+        try:
+            with open(filename, "w", encoding="utf-8") as f:
+                f.write("📊 PREMIUM SMS BOT - LIVE STOCK REPORT\n\n")
+                for s_key, s_val in SERVICES.items():
+                    f.write(f"=== {s_val['name']} Stock ===\n")
+                    srv_stock = curr_db.get(s_key, {})
+                    for country, numbers in sorted(srv_stock.items()):
+                        if numbers:
+                            f.write(f"[{country}] - Available: {len(numbers)}\n")
+                            for num in numbers: f.write(f"{num}\n")
+                    f.write("\n")
+            with open(filename, "rb") as doc:
+                bot.send_document(chat_id, doc, caption="📊 Live data stock file.")
+        except Exception as e: pass
+        finally:
+            if os.path.exists(filename): os.remove(filename)
 
     elif call.data == "conf_clear":
         markup = types.InlineKeyboardMarkup(row_width=1)
         for s_key, s_val in SERVICES.items():
-            markup.add(types.InlineKeyboardButton(f"🗑️ Clear {s_val['name']}", callback_data=f"rmvsrv_{s_key}"))
-        bot.edit_message_text("🗑️ Select service:", chat_id, message_id, reply_markup=markup)
+            markup.add(types.InlineKeyboardButton(f"🗑️ Clear {s_val['name']} Stock", callback_data=f"rmvsrv_{s_key}"))
+        markup.add(types.InlineKeyboardButton("⬅️ Back", callback_data="back_settings"))
+        bot.edit_message_text("🗑️ **Select service to clear completely:**", chat_id, message_id, reply_markup=markup)
 
     elif call.data.startswith('rmvsrv_'):
-        srv = call.data.replace('rmvsrv_', '')
+        srv_to_rm = call.data.replace('rmvsrv_', '')
         curr_db = load_data(DB_FILE, {})
-        curr_db[srv] = {}
-        save_data(DB_FILE, curr_db)
-        bot.edit_message_text("✅ Cleared!", chat_id, message_id)
+        if srv_to_rm in curr_db:
+            curr_db[srv_to_rm] = {}
+            save_data(DB_FILE, curr_db)
+            admin_settings(call.message)
+
+    elif call.data == "back_settings":
+        try: bot.delete_message(chat_id, message_id)
+        except: pass
+        admin_settings(call.message)
 
     elif call.data == "conf_chan":
         markup = types.InlineKeyboardMarkup(row_width=1)
         markup.add(types.InlineKeyboardButton("➕ Add Channel", callback_data="add_ch"))
         for i, ch in enumerate(config.get('channels', [])):
-            markup.add(types.InlineKeyboardButton(f"🗑️ Del {ch['username']}", callback_data=f"delch_{i}"))
-        bot.edit_message_text("⚙️ Channels:", chat_id, message_id, reply_markup=markup)
+            markup.add(types.InlineKeyboardButton(f"🗑️ Delete {ch['username']}", callback_data=f"delch_{i}"))
+        bot.edit_message_text("⚙️ **Manage Channels:**", chat_id, message_id, reply_markup=markup)
 
     elif call.data == "add_ch":
-        msg = bot.send_message(chat_id, "Send: @Username Link")
+        msg = bot.send_message(chat_id, "Format: `@Username https://link`")
         bot.register_next_step_handler(msg, process_add_ch)
 
     elif call.data.startswith("delch_"):
         idx = int(call.data.split("_")[1])
         config['channels'].pop(idx)
         save_data(CONFIG_FILE, config)
-        bot.edit_message_text("✅ Deleted!", chat_id, message_id)
+        admin_settings(call.message)
 
     elif call.data == "conf_ref":
-        msg = bot.send_message(chat_id, "Enter Bonus:")
+        msg = bot.send_message(chat_id, "Enter Refer Bonus:")
         bot.register_next_step_handler(msg, lambda m: update_cfg(m, 'ref_bonus'))
     elif call.data == "conf_with":
         msg = bot.send_message(chat_id, "Enter Min Withdraw:")
         bot.register_next_step_handler(msg, lambda m: update_cfg(m, 'min_withdraw'))
+    elif call.data == "conf_bc":
+        msg = bot.send_message(chat_id, "Enter Broadcast Message:")
+        bot.register_next_step_handler(msg, do_broadcast)
 
 def process_add_ch(message):
-    parts = message.text.split()
-    config['channels'].append({"username": parts[0], "link": parts[1]})
-    save_data(CONFIG_FILE, config)
-    bot.send_message(message.chat.id, "✅ Added!")
+    try:
+        parts = message.text.split()
+        config['channels'].append({"username": parts[0], "link": parts[1]})
+        save_data(CONFIG_FILE, config)
+        bot.send_message(message.chat.id, "✅ Added!")
+    except: bot.send_message(message.chat.id, "❌ Error!")
 
 def update_cfg(message, key):
-    config[key] = float(message.text)
-    save_data(CONFIG_FILE, config)
-    bot.send_message(message.chat.id, "✅ Updated!")
+    try:
+        config[key] = float(message.text)
+        save_data(CONFIG_FILE, config)
+        bot.send_message(message.chat.id, "✅ Updated!")
+    except: pass
+
+def do_broadcast(message):
+    # কাস্টম ব্রডকাস্টকেও ফিক্সড ইঞ্জিনে পাঠানো হলো
+    threading.Thread(target=async_stock_alert_broadcast, args=(message.text,), daemon=True).start()
+    bot.send_message(message.chat.id, "📢 Broadcast started successfully in background!")
 
 def main():
-    bot.infinity_polling(none_stop=True)
+    try: bot.remove_webhook()
+    except: pass
+    bot.infinity_polling(none_stop=True, timeout=60, long_polling_timeout=30)
 
 if __name__ == "__main__":
     main()
-    
