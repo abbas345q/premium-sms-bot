@@ -165,20 +165,31 @@ def main():
                         if len(row) >= 3:
                             srv, num, msg = str(row[0]).strip(), str(row[1]).strip(), str(row[2]).strip()
                             
-                            # ওটিপি ডিটেকশন লজিক আপডেট করা হয়েছে
-                            otp_match = re.search(r'\b(\d{3,4}[-\s]?\d{3,4})\b', msg)
-                            if otp_match:
-                                otp = otp_match.group()
-                            else:
-                                fallback_match = re.search(r'\b(\d{4,8})\b', msg)
-                                otp = fallback_match.group() if fallback_match else "N/A"
+                            # === ইউনিভার্সাল ওটিপি ডিটেকশন লজিক ===
+                            # এটি প্রথমে হাইফেন বা স্পেস যুক্ত ৬ ডিজিট খুঁজবে
+                            # এরপর সাধারণ ৪-৮ ডিজিটের সংখ্যা খুঁজবে
+                            # সর্বশেষ, যদি টেক্সটের ভেতরে কোড থাকে তবে সেটিকেও গুরুত্ব দেবে
+                            otp = "N/A"
+                            
+                            # প্যাটার্ন ১: ৬ ডিজিট (হাইফেন/স্পেস সহ বা ছাড়া)
+                            pattern_complex = re.search(r'\b\d{3}[-\s]?\d{3}\b', msg)
+                            # প্যাটার্ন ২: ৪ থেকে ৮ ডিজিটের সাধারণ কোড
+                            pattern_simple = re.search(r'\b\d{4,8}\b', msg)
+                            
+                            if pattern_complex:
+                                otp = pattern_complex.group()
+                            elif pattern_simple:
+                                otp = pattern_simple.group()
                             
                             uid_key = f"{num}_{otp}"
                             
-                            if uid_key not in LOCAL_PROCESSED_KEYS:
+                            # যদি ওটিপি না পাওয়া যায়, তবুও কি আমরা এটি প্রসেস করবো? 
+                            # এখন ওটিপি না পেলেও এটি ইউনিক কী তৈরি করবে, 
+                            # তবে ওটিপি পাওয়ার পরই শুধু গ্রুপে পাঠানো ভালো।
+                            if otp != "N/A" and uid_key not in LOCAL_PROCESSED_KEYS:
                                 LOCAL_PROCESSED_KEYS.add(uid_key) 
                                 
-                                print(f"🔥 [NEW OTP] Processing {num} -> Country Detected automatically")
+                                print(f"🔥 [NEW OTP] Processing {num} -> Found: {otp}")
                                 
                                 send_to_telegram_group_premium(srv, num, otp, msg)
                                 send_direct_to_user_inbox(srv, num, otp)
@@ -191,10 +202,6 @@ def main():
                                 json.dump(list(LOCAL_PROCESSED_KEYS), f, indent=4)
                         except: pass
             
-            time.sleep(2) 
+            time.sleep(3) 
         except Exception as e:
-            time.sleep(2)
-
-if __name__ == "__main__":
-    main()
-        
+            time.sleep(4)
