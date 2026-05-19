@@ -151,19 +151,43 @@ def handle_all(message):
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
-    try: bot.answer_callback_query(call.id)
-    except: pass
     chat_id, message_id = call.message.chat.id, call.message.message_id
     
-    if call.data.startswith('show_srv_'): send_country_list(chat_id, call.data.replace('show_srv_', ''), message_id)
+    # 📊 Export Stock Logic
+    if call.data == "conf_export":
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        for key, val in SERVICES.items():
+            markup.add(types.InlineKeyboardButton(f"📥 Export {val['name']}", callback_data=f"export_{key}"))
+        bot.edit_message_text("📊 <b>Select service to export:</b>", chat_id, message_id, reply_markup=markup, parse_mode="HTML")
+        
+    elif call.data.startswith('export_'):
+        srv = call.data.replace('export_', '')
+        curr_db = load_data(DB_FILE, {})
+        srv_stock = curr_db.get(srv, {})
+        
+        all_nums = []
+        for country, nums in srv_stock.items():
+            all_nums.extend(nums)
+            
+        if not all_nums:
+            bot.answer_callback_query(call.id, "❌ Empty Stock!")
+            return
+            
+        file_name = f"{srv}_stock.txt"
+        with open(file_name, 'w') as f:
+            f.write("\n".join(all_nums))
+        
+        with open(file_name, 'rb') as f:
+            bot.send_document(chat_id, f)
+        os.remove(file_name)
+        bot.answer_callback_query(call.id, "✅ Done!")
+
+    # পুরনো লজিকসমূহ
+    elif call.data.startswith('show_srv_'): send_country_list(chat_id, call.data.replace('show_srv_', ''), message_id)
     elif call.data == "back_to_services": send_service_list(chat_id, message_id)
     
     elif call.data.startswith('addstock_'):
         srv_target = call.data.replace('addstock_', '')
-        if srv_target == "CANCEL": 
-            bot.edit_message_text("❌ Cancelled.", chat_id, message_id)
-            return
-        
         found_numbers = ADMIN_UPLOAD_TEMP.get(call.from_user.id, [])
         curr_db = load_data(DB_FILE, {})
         if srv_target not in curr_db: curr_db[srv_target] = {}
@@ -184,8 +208,6 @@ def handle_query(call):
                 total_added += 1
                 
         save_data(DB_FILE, curr_db)
-        
-        # রিপোর্ট মেসেজ
         report = f"✅ <b>Stock Updated!</b>\n🛠 <b>Service:</b> {SERVICES[srv_target]['name']}\n🔢 <b>Total:</b> {total_added}\n\n"
         for country, count in added_report.items():
             report += f"{country}: <b>{count}</b>\n"
@@ -202,16 +224,24 @@ def handle_query(call):
             bot.send_message(chat_id, "❌ স্টক শেষ!")
             return
             
-        nums = [str(srv_stock.pop(0)) for _ in range(min(3, len(srv_stock)))]
+        selected_number = str(srv_stock.pop(0))
         curr_db[srv][country] = srv_stock
         save_data(DB_FILE, curr_db)
         
-        raw_keyboard = [[{"text": f"{country.split()[0]} {n}", "copy_text": {"text": str(n)}}] for n in nums]
+        users = load_data(USER_FILE, {})
+        uid = str(call.from_user.id)
+        if uid not in users:
+            users[uid] = {"balance": 0.0, "ref_count": 0, "name": call.from_user.first_name, "joined": True, "active_numbers": []}
+        if "active_numbers" not in users[uid]: users[uid]["active_numbers"] = []
+        users[uid]["active_numbers"].append({"number": selected_number, "service": srv})
+        save_data(USER_FILE, users)
+        
+        raw_keyboard = [[{"text": f"{country.split()[0]} {selected_number}", "copy_text": {"text": str(selected_number)}}]]
         raw_keyboard.append([{"text": "🔄 CHANGE NUMBERS", "callback_data": f"sel_{srv}_{country}"}])
         raw_keyboard.append([{"text": "🌐 CHANGE COUNTRY", "callback_data": f"show_srv_{srv}"}])
         raw_keyboard.append([{"text": "🚀 GET OTP", "url": OTP_GROUP_LINK}])
         
-        msg = f"🌍 {country}\n⚙️ {SERVICES[srv]['name']}\n\n⏳ Waiting for OTP..."
+        msg = f"🌍 {country}\n⚙️ {SERVICES[srv]['name']}\n\n✅ নাম্বারটি এক্টিভ হয়েছে!\n⏳ Waiting for OTP..."
         bot.edit_message_text(msg, chat_id, message_id, reply_markup=json.dumps({"inline_keyboard": raw_keyboard}), parse_mode="Markdown")
 
 def main():
