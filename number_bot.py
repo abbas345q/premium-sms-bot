@@ -181,7 +181,7 @@ def handle_query(call):
             
             users[uid]["active_numbers"] = []
             delivered_numbers = []
-            take_count = min(2, len(curr_db[country]))
+            take_count = min(3, len(curr_db[country]))
             for _ in range(take_count):
                 if curr_db[country]:
                     raw_num = str(curr_db[country].pop(0))
@@ -195,15 +195,38 @@ def handle_query(call):
                 bot.answer_callback_query(call.id, "❌ স্টক শেষ!", show_alert=True)
                 return
 
-            num_text = "\n".join([f"`{n}`" for n in delivered_numbers])
-            markup = types.InlineKeyboardMarkup(row_width=1)
-            markup.add(
-                types.InlineKeyboardButton("🔄 CHANGE NUMBERS", callback_data=f"sel_{country}"),
-                types.InlineKeyboardButton("🌐 CHANGE COUNTRY", callback_data="back_c"),
-                types.InlineKeyboardButton("🚀 GET OTP", url=OTP_GROUP_LINK)
+            # 📌 মেইন বটের বাটন জেনারেটর ইঞ্জিন (র-মেথড) শুরু 🚀
+            raw_keyboard = []
+            
+            # দেশের নাম থেকে শুধু কান্ট্রি ফ্ল্যাগ বা প্রথম ইমোজিটা আলাদা করে নেওয়া হচ্ছে
+            flag_icon = country.split()[0] if country.split() else "🌍"
+            
+            # ডেলিভারি হওয়া নম্বরগুলোকে বাটন আকারে সাজানো হচ্ছে (কোনো এক্সট্রা লোগো ছাড়া, শুধু পতাকা ও নম্বর)
+            for num in delivered_numbers:
+                btn_text = f"{flag_icon} {num}"
+                number_button = {
+                    "text": btn_text,
+                    "copy_text": {"text": str(num)} # এই মেথডটি বাটনের পাশে অরিজিনাল কপি সাইন নিয়ে আসবে
+                }
+                raw_keyboard.append([number_button])
+                
+            # কন্ট্রোল বাটনগুলো নিচে যুক্ত করা হলো
+            raw_keyboard.append([{"text": "🔄 CHANGE NUMBERS", "callback_data": f"sel_{country}"}])
+            raw_keyboard.append([{"text": "🌐 CHANGE COUNTRY", "callback_data": "back_c"}])
+            raw_keyboard.append([{"text": "🚀 GET OTP", "url": OTP_GROUP_LINK}])
+            
+            custom_markup = {"inline_keyboard": raw_keyboard}
+            
+            # আপনার মেইন ডিসপ্লে মেসেজ টেক্সট
+            msg_text = f"🌍 **Country:** {country}\n━━━━━━━━━━━━━━\n⏳ **Waiting for OTP...**"
+            
+            bot.edit_message_text(
+                text=msg_text, 
+                chat_id=chat_id, 
+                message_id=message_id, 
+                reply_markup=json.dumps(custom_markup), 
+                parse_mode="Markdown"
             )
-            msg_text = f"🌍 **Country:** {country}\n━━━━━━━━━━━━━━\n{num_text}\n━━━━━━━━━━━━━━\n💡 **Tap to copy!**"
-            bot.edit_message_text(msg_text, chat_id, message_id, reply_markup=markup, parse_mode="Markdown")
         else: bot.answer_callback_query(call.id, "❌ স্টক শেষ!", show_alert=True)
 
     elif call.data == "back_c":
@@ -319,4 +342,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-            
+    
