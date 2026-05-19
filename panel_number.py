@@ -14,16 +14,24 @@ API_BASE_URL = 'http://147.135.212.197/crapi/st/viewstats'
 
 BOT_TOKEN = '7634786660:AAHvY09ndmYnO6pLpz_84rSLqGUEMlfwNd4'
 OTP_GROUP_ID = -1002295608331
-USER_FILE = 'users_data.json'
+# নিশ্চিত করুন এই পাথটি আপনার বটের পাথ অনুযায়ী সঠিক আছে
+USER_FILE = 'users_data.json' 
 SENT_FILE = 'db_number_panel.json'
 
 SERVICE_ICONS = {"facebook": "Facebook", "whatsapp": "WhatsApp", "telegram": "Telegram"}
 
 LOCAL_PROCESSED_KEYS = set()
 
-def mask_number(number):
-    num_str = str(number).strip()
-    return f"{num_str[:-7]}***{num_str[-4:]}" if len(num_str) > 7 else num_str
+def safe_load_json(file_path, default_value):
+    # ফাইল না থাকলে বা সাইজ ০ হলে ডিফল্ট ভ্যালু রিটার্ন করবে
+    if not os.path.exists(file_path) or os.path.getsize(file_path) == 0: 
+        return default_value
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f: 
+            return json.load(f)
+    except Exception as e:
+        print(f"Error loading {file_path}: {e}")
+        return default_value
 
 def get_country_info(number):
     try:
@@ -37,47 +45,29 @@ def get_country_info(number):
     except: pass
     return "🌐", "GL"
 
-def detect_language(msg):
-    msg_lower = msg.lower()
-    if re.search(r'[া-ীু-ূে-ো]', msg): return "Bangla"
-    elif any(word in msg_lower for word in ["code", "otp", "is", "verification", "your"]): return "English"
-    return "English"
-
-def safe_load_json(file_path, default_value):
-    if os.path.exists(file_path):
-        try:
-            if os.path.getsize(file_path) == 0: return default_value
-            with open(file_path, 'r', encoding='utf-8') as f: return json.load(f)
-        except: return default_value
-    return default_value
-
 def send_to_telegram_group_premium(service, number, otp, full_msg):
     flag, short_name = get_country_info(number)
-    lang = detect_language(full_msg)
     srv_name = service.lower()
     clean_srv = next((v for k, v in SERVICE_ICONS.items() if k in srv_name), service.upper())
     
-    text = f"{flag} <b>{short_name}</b> {clean_srv}\n{mask_number(number)} [<b>{lang}</b>]"
+    text = f"{flag} <b>{short_name}</b> {clean_srv}\n<code>{number}</code>"
     payload = {
         "chat_id": OTP_GROUP_ID,
         "text": text,
         "parse_mode": "HTML",
         "reply_markup": {
-            "inline_keyboard": [
-                [{"text": f"🔑 {otp}", "copy_text": {"text": str(otp)}}],
-                [{"text": "🔝 Number", "url": "https://t.me/Premium_SMS2_bot"}, {"text": "🤖 Methods", "url": "https://t.me/Earning_Tips055"}]
-            ]
+            "inline_keyboard": [[{"text": f"🔑 {otp}", "copy_text": {"text": str(otp)}}]]
         }
     }
     try: requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json=payload, timeout=10)
     except: pass
 
-# 🎯 সংশোধিত ইনবক্স ফরওয়ার্ডিং ফাংশন (পুরো মেসেজে লাস্ট ৪ ডিজিট ম্যাচিং)
 def send_direct_to_user_inbox(service, number, otp, full_msg):
     current_users = safe_load_json(USER_FILE, {})
     if not current_users: return
 
     flag, short_name = get_country_info(number)
+    srv_clean = next((v for k, v in SERVICE_ICONS.items() if k in service.lower()), service.upper())
 
     for uid, u_info in current_users.items():
         if not isinstance(u_info, dict): continue
@@ -87,17 +77,20 @@ def send_direct_to_user_inbox(service, number, otp, full_msg):
             user_full_num = str(num_obj.get("number", ""))
             user_clean_num = re.sub(r'\D', '', user_full_num)
             
-            # যদি ইউজারের নাম্বারের লাস্ট ৪ ডিজিট পুরো মেসেজের ভেতর থাকে
+            # নাম্বারের শেষ ৪ ডিজিট চেক
             if len(user_clean_num) >= 4:
                 user_4_digits = user_clean_num[-4:]
+                
+                # যদি ওটিপি মেসেজের ভেতর ওই ৪ ডিজিট থাকে
                 if user_4_digits in full_msg:
-                    srv_clean = next((v for k, v in SERVICE_ICONS.items() if k in service.lower()), service.upper())
                     inbox_text = f"{flag} <b>{short_name}</b> {srv_clean}\n<code>{user_full_num}</code>"
                     payload = {
                         "chat_id": int(uid),
                         "text": inbox_text,
                         "parse_mode": "HTML",
-                        "reply_markup": {"inline_keyboard": [[{"text": f"🔑 {otp}", "copy_text": {"text": str(otp)}}]]}
+                        "reply_markup": {
+                            "inline_keyboard": [[{"text": f"🔑 {otp}", "copy_text": {"text": str(otp)}}]]
+                        }
                     }
                     try: requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json=payload, timeout=10)
                     except: pass
@@ -109,12 +102,10 @@ def main():
 
     while True:
         try:
-            dt1_time = (datetime.now() - timedelta(hours=1)).strftime('%Y-%m-%d %H:%M:%S')
-            params = {"token": API_TOKEN, "dt1": dt1_time, "records": "30"}
-            
+            params = {"token": API_TOKEN, "records": "30"}
             res = requests.get(API_BASE_URL, params=params, timeout=15)
             if res.status_code == 200:
-                records = res.json() if res.status_code == 200 else []
+                records = res.json()
                 if isinstance(records, list):
                     for row in reversed(records):
                         srv, num, msg = str(row[0]), str(row[1]), str(row[2])
@@ -125,14 +116,14 @@ def main():
                         if uid_key not in LOCAL_PROCESSED_KEYS:
                             LOCAL_PROCESSED_KEYS.add(uid_key)
                             send_to_telegram_group_premium(srv, num, otp, msg)
-                            # এখানে full_msg (msg) পাস করা হয়েছে
                             send_direct_to_user_inbox(srv, num, otp, msg)
                     
                     with open(SENT_FILE, 'w', encoding='utf-8') as f:
                         json.dump(list(LOCAL_PROCESSED_KEYS), f, indent=4)
             time.sleep(3)
-        except: time.sleep(5)
+        except Exception as e:
+            time.sleep(5)
 
 if __name__ == "__main__":
     main()
-                    
+    
