@@ -16,6 +16,7 @@ USER_FILE = 'users_data.json'
 CONFIG_FILE = 'settings.json'
 OTP_GROUP_LINK = "https://t.me/Premium_OTP_chat"
 
+# মাল্টি-থ্রেডিং ১০ দেওয়া হলো স্পিড ধরে রাখার জন্য
 bot = telebot.TeleBot(API_TOKEN, threaded=True, num_threads=10)
 
 ADMIN_UPLOAD_TEMP = {}
@@ -226,8 +227,6 @@ def handle_query(call):
             curr_db[srv_target] = {}
             
         added = 0
-        added_data = {}
-        
         for r in found_numbers:
             clean_r = "+" + r.lstrip('+')
             flag = detect_country_flag(clean_r)
@@ -235,27 +234,15 @@ def handle_query(call):
             except: name = "Unknown"
             c_name = f"{flag} {name}" if name != "Unknown" else f"📍 Zone +{clean_r[1:4]}"
             
-            if c_name not in curr_db[srv_target]: 
-                curr_db[srv_target][c_name] = []
+            if c_name not in curr_db[srv_target]: curr_db[srv_target][c_name] = []
                 
             if clean_r not in curr_db[srv_target][c_name]:
                 curr_db[srv_target][c_name].append(clean_r)
-                if c_name not in added_data: added_data[c_name] = 0
-                added_data[c_name] += 1
                 added += 1
                 
         save_data(DB_FILE, curr_db)
         del ADMIN_UPLOAD_TEMP[admin_id]
-        
-        if added > 0:
-            stats = "\n".join([f"• {k}: {v} numbers" for k, v in added_data.items()])
-            notification = (f"✅ <b>Stock Added!</b>\n\n"
-                            f"🛠 <b>Service:</b> {SERVICES[srv_target]['name']}\n"
-                            f"🔢 <b>Total Added:</b> {added}\n\n"
-                            f"{stats}")
-            bot.edit_message_text(notification, chat_id, message_id, parse_mode="HTML")
-        else:
-            bot.edit_message_text("⚠️ No new or unique numbers were added.", chat_id, message_id)
+        bot.edit_message_text(f"✅ Successfully loaded {added} numbers.", chat_id, message_id)
 
     elif call.data.startswith('sel_'):
         data_string = call.data.replace('sel_', '')
@@ -266,30 +253,31 @@ def handle_query(call):
         curr_db = load_data(DB_FILE, {})
         srv_stock = curr_db.get(service_key, {}).get(country, [])
         
-        if len(srv_stock) < 3:
-            bot.edit_message_text(f"❌ {country} এর স্টক কম! ৩টি নাম্বার পাওয়া যাচ্ছে না।", chat_id, message_id)
+        if len(srv_stock) < 1:
+            bot.send_message(chat_id, "❌ এই দেশের স্টক শেষ হয়ে গেছে!")
             return
             
-        delivered_numbers = [str(srv_stock.pop(0)) for _ in range(3)]
+        delivered_numbers = [str(srv_stock.pop(0)) for _ in range(min(3, len(srv_stock)))]
         curr_db[service_key][country] = srv_stock
         save_data(DB_FILE, curr_db)
         
+        raw_keyboard = []
         flag_icon = country.split()[0] if country.split() else "🌍"
-        markup = types.InlineKeyboardMarkup(row_width=1)
         
         for num in delivered_numbers:
-            markup.add(types.InlineKeyboardButton(text=f"{flag_icon} {num}", callback_data=f"copy_{num}"))
+            raw_keyboard.append([{"text": f"{flag_icon} {num}", "copy_text": {"text": str(num)}}])
             
-        markup.add(
-            types.InlineKeyboardButton("🔄 Change Numbers", callback_data=f"sel_{service_key}_{country}"),
-            types.InlineKeyboardButton("🌍 Change Country", callback_data=f"show_srv_{service_key}"),
-            types.InlineKeyboardButton("🚀 Get OTP", url=OTP_GROUP_LINK)
-        )
+        # এখানে ফিক্স করা হয়েছে: Change Numbers এ ক্লিক করলে পুনরায় একই কান্ট্রি থেকে স্টক আসবে
+        raw_keyboard.append([{"text": "🔄 CHANGE NUMBERS", "callback_data": f"sel_{service_key}_{country}"}])
+        raw_keyboard.append([{"text": "🌐 CHANGE COUNTRY", "callback_data": f"show_srv_{service_key}"}])
+        raw_keyboard.append([{"text": "🚀 GET OTP", "url": OTP_GROUP_LINK}])
         
-        bot.edit_message_text(f"🌍 **Country:** {country}\n⚙️ **Service:** {SERVICES[service_key]['name']}\n\n✅ **Click the number to copy it:**", chat_id, message_id, reply_markup=markup, parse_mode="Markdown")
-
-    elif call.data.startswith('copy_'):
-        bot.answer_callback_query(call.id, "Copied to clipboard!", show_alert=True)
+        custom_markup = {"inline_keyboard": raw_keyboard}
+        msg_text = f"🌍 **Country:** {country}\n⚙️ **Service:** {SERVICES[service_key]['icon']} {SERVICES[service_key]['name']}\n━━━━━━━━━━━━━━\n⏳ **Waiting for OTP...**"
+        
+        try:
+            bot.edit_message_text(text=msg_text, chat_id=chat_id, message_id=message_id, reply_markup=json.dumps(custom_markup), parse_mode="Markdown")
+        except: pass
 
     elif call.data == "conf_export":
         if int(uid) != ADMIN_ID: return
@@ -297,9 +285,8 @@ def handle_query(call):
         filename = "live_stock.txt"
         with open(filename, "w", encoding="utf-8") as f:
             for s_key, s_val in SERVICES.items():
-                f.write(f"=== {s_val['name']} ===\n")
                 for c, nums in curr_db.get(s_key, {}).items():
-                    f.write(f"{c}: {len(nums)}\n")
+                    f.write(f"{c}: {len(nums)} numbers\n")
         with open(filename, "rb") as doc: bot.send_document(chat_id, doc)
         os.remove(filename)
 
@@ -331,7 +318,7 @@ def handle_query(call):
         idx = int(call.data.split("_")[1])
         config['channels'].pop(idx)
         save_data(CONFIG_FILE, config)
-        bot.edit_message_text("✅ Deleted!", chat_id, message_id)
+        admin_settings(call.message)
 
     elif call.data == "conf_ref":
         msg = bot.send_message(chat_id, "Enter Bonus:")
@@ -356,4 +343,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-                
+            
