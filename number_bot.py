@@ -151,9 +151,10 @@ def handle_all(message):
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
+    # বাটন দ্রুত রেসপন্সের জন্য
+    bot.answer_callback_query(call.id)
     chat_id, message_id = call.message.chat.id, call.message.message_id
     
-    # 📊 Export Stock Logic
     if call.data == "conf_export":
         markup = types.InlineKeyboardMarkup(row_width=1)
         for key, val in SERVICES.items():
@@ -180,9 +181,7 @@ def handle_query(call):
         with open(file_name, 'rb') as f:
             bot.send_document(chat_id, f)
         os.remove(file_name)
-        bot.answer_callback_query(call.id, "✅ Done!")
-
-    # পুরনো লজিকসমূহ
+    
     elif call.data.startswith('show_srv_'): send_country_list(chat_id, call.data.replace('show_srv_', ''), message_id)
     elif call.data == "back_to_services": send_service_list(chat_id, message_id)
     
@@ -220,32 +219,17 @@ def handle_query(call):
         curr_db = load_data(DB_FILE, {})
         srv_stock = curr_db.get(srv, {}).get(country, [])
         
-        if len(srv_stock) < 1:
-            bot.send_message(chat_id, "❌ স্টক শেষ!")
+        if len(srv_stock) < 3:
+            bot.send_message(chat_id, "❌ অন্তত ৩টি নাম্বার প্রয়োজন!")
             return
             
-        selected_number = str(srv_stock.pop(0))
+        # একসাথে ৩টি নাম্বার নেওয়া
+        selected_numbers = [str(srv_stock.pop(0)) for _ in range(3)]
         curr_db[srv][country] = srv_stock
         save_data(DB_FILE, curr_db)
         
         users = load_data(USER_FILE, {})
         uid = str(call.from_user.id)
         if uid not in users:
-            users[uid] = {"balance": 0.0, "ref_count": 0, "name": call.from_user.first_name, "joined": True, "active_numbers": []}
-        if "active_numbers" not in users[uid]: users[uid]["active_numbers"] = []
-        users[uid]["active_numbers"].append({"number": selected_number, "service": srv})
-        save_data(USER_FILE, users)
+            users[uid] = {"balance": 0.0, "ref_count": 0, "name": call.from_user.first_name, "joined": True
         
-        raw_keyboard = [[{"text": f"{country.split()[0]} {selected_number}", "copy_text": {"text": str(selected_number)}}]]
-        raw_keyboard.append([{"text": "🔄 CHANGE NUMBERS", "callback_data": f"sel_{srv}_{country}"}])
-        raw_keyboard.append([{"text": "🌐 CHANGE COUNTRY", "callback_data": f"show_srv_{srv}"}])
-        raw_keyboard.append([{"text": "🚀 GET OTP", "url": OTP_GROUP_LINK}])
-        
-        msg = f"🌍 {country}\n⚙️ {SERVICES[srv]['name']}\n\n✅ নাম্বারটি এক্টিভ হয়েছে!\n⏳ Waiting for OTP..."
-        bot.edit_message_text(msg, chat_id, message_id, reply_markup=json.dumps({"inline_keyboard": raw_keyboard}), parse_mode="Markdown")
-
-def main():
-    bot.infinity_polling(none_stop=True)
-
-if __name__ == "__main__":
-    main()
