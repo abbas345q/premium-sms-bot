@@ -72,16 +72,11 @@ def send_to_telegram_group_premium(service, number, otp, full_msg):
     try: requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json=payload, timeout=10)
     except: pass
 
-# 🎯 আপডেটেড ইনবক্স ফরওয়ার্ডিং ফাংশন (লাস্ট ৪ ডিজিট ম্যাচিং সিস্টেম)
-def send_direct_to_user_inbox(service, number, otp):
+# 🎯 সংশোধিত ইনবক্স ফরওয়ার্ডিং ফাংশন (পুরো মেসেজে লাস্ট ৪ ডিজিট ম্যাচিং)
+def send_direct_to_user_inbox(service, number, otp, full_msg):
     current_users = safe_load_json(USER_FILE, {})
     if not current_users: return
 
-    # ওটিপি মেসেজের নাম্বারের শেষ ৪ ডিজিট বের করা
-    clean_num = re.sub(r'\D', '', str(number))
-    if len(clean_num) < 4: return
-    target_4_digits = clean_num[-4:]
-    
     flag, short_name = get_country_info(number)
 
     for uid, u_info in current_users.items():
@@ -89,24 +84,20 @@ def send_direct_to_user_inbox(service, number, otp):
         active_numbers = u_info.get("active_numbers", [])
         
         for num_obj in active_numbers:
-            user_clean_num = re.sub(r'\D', '', str(num_obj.get("number", "")))
+            user_full_num = str(num_obj.get("number", ""))
+            user_clean_num = re.sub(r'\D', '', user_full_num)
             
-            # ইউজারের নাম্বারের লাস্ট ৪ ডিজিট চেক করা
+            # যদি ইউজারের নাম্বারের লাস্ট ৪ ডিজিট পুরো মেসেজের ভেতর থাকে
             if len(user_clean_num) >= 4:
                 user_4_digits = user_clean_num[-4:]
-                
-                # যদি লাস্ট ৪ ডিজিট মিলে যায়
-                if target_4_digits == user_4_digits:
+                if user_4_digits in full_msg:
                     srv_clean = next((v for k, v in SERVICE_ICONS.items() if k in service.lower()), service.upper())
-                    
-                    inbox_text = f"{flag} <b>{short_name}</b> {srv_clean}\n<code>{num_obj['number']}</code>"
+                    inbox_text = f"{flag} <b>{short_name}</b> {srv_clean}\n<code>{user_full_num}</code>"
                     payload = {
                         "chat_id": int(uid),
                         "text": inbox_text,
                         "parse_mode": "HTML",
-                        "reply_markup": {
-                            "inline_keyboard": [[{"text": f"🔑 {otp}", "copy_text": {"text": str(otp)}}]]
-                        }
+                        "reply_markup": {"inline_keyboard": [[{"text": f"🔑 {otp}", "copy_text": {"text": str(otp)}}]]}
                     }
                     try: requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json=payload, timeout=10)
                     except: pass
@@ -134,13 +125,14 @@ def main():
                         if uid_key not in LOCAL_PROCESSED_KEYS:
                             LOCAL_PROCESSED_KEYS.add(uid_key)
                             send_to_telegram_group_premium(srv, num, otp, msg)
-                            send_direct_to_user_inbox(srv, num, otp)
+                            # এখানে full_msg (msg) পাস করা হয়েছে
+                            send_direct_to_user_inbox(srv, num, otp, msg)
                     
                     with open(SENT_FILE, 'w', encoding='utf-8') as f:
                         json.dump(list(LOCAL_PROCESSED_KEYS), f, indent=4)
             time.sleep(3)
-        except: time.sleep(3)
+        except: time.sleep(5)
 
 if __name__ == "__main__":
     main()
-                        
+                    
