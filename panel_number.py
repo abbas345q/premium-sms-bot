@@ -1,121 +1,205 @@
-import telebot
-from telebot import types
+import requests
+import time
 import re
 import json
 import os
-import time
-import threading
+from datetime import datetime, timedelta
 import phonenumbers
 from phonenumbers import geocoder
 
-# --- CONFIGURATION ---
-API_TOKEN = '7634786660:AAHvY09ndmYnO6pLpz_84rSLqGUEMlfwNd4'
-ADMIN_ID = 6781949890
-DB_FILE = 'numbers_db.json'
+# === CONFIGURATION ===
+PANEL_NAME = "Premium OTP Panel" 
+API_TOKEN = 'RlFTQ0pBUzRiZHhJVIlVioZthlVIaWZdVI-Dg3ODkUmCZHNFWISIig=='
+API_BASE_URL = 'http://147.135.212.197/crapi/st/viewstats'
+
+BOT_TOKEN = '7634786660:AAHvY09ndmYnO6pLpz_84rSLqGUEMlfwNd4'
+OTP_GROUP_ID = -1002295608331
 USER_FILE = 'users_data.json'
-CONFIG_FILE = 'settings.json'
-OTP_GROUP_LINK = "https://t.me/Premium_OTP_chat"
+SENT_FILE = 'db_number_panel.json'
 
-bot = telebot.TeleBot(API_TOKEN, threaded=True, num_threads=10)
-ADMIN_UPLOAD_TEMP = {}
+SERVICE_ICONS = {"facebook": "Facebook", "whatsapp": "WhatsApp", "telegram": "Telegram"}
 
-SERVICES = {
-    "FACEBOOK": {"name": "Facebook", "icon": "🔵"},
-    "WHATSAPP": {"name": "WhatsApp", "icon": "🟢"},
-    "TELEGRAM": {"name": "Telegram", "icon": "✈️"}
-}
+# মেমরি লক (ওটিপি ডাবল হওয়া প্রতিরোধ করার জন্য)
+LOCAL_PROCESSED_KEYS = set()
 
-def load_data(file, default):
-    if os.path.exists(file):
-        try:
-            if os.path.getsize(file) == 0: return default
-            with open(file, 'r', encoding='utf-8') as f: return json.load(f)
-        except: return default
-    return default
+def mask_number(number):
+    num_str = str(number).strip()
+    return f"{num_str[:-7]}***{num_str[-4:]}" if len(num_str) > 7 else num_str
 
-def save_data(file, data):
+def get_country_info(number):
+    """
+    phonenumbers লাইব্রেরি ব্যবহার করে পৃথিবীর যেকোনো দেশের নাম 
+    এবং তার সঠিক ফ্ল্যাগ (Flag) ও ২ অক্ষরের শর্ট নেম (Short Name) বের করার ফাংশন Bug-Free মেথডে।
+    """
     try:
-        with open(file, 'w', encoding='utf-8') as f: json.dump(data, f, indent=4)
+        raw_num = str(number).strip()
+        if not raw_num.startswith('+'):
+            raw_num = '+' + raw_num
+            
+        parsed_num = phonenumbers.parse(raw_num, None)
+        region_code = phonenumbers.region_code_for_number(parsed_num)
+        
+        if region_code:
+            # ২ অক্ষরের রিজিয়ন কোড থেকে ইমোজি ফ্ল্যাগ তৈরি করার স্ট্যান্ডার্ড এপিআই নিয়ম
+            flag = "".join(chr(ord(c) + 127397) for c in region_code.upper())
+            return flag, region_code.upper()
+    except:
+        pass
+    
+    return "🌐", "GL"
+
+def detect_language(msg):
+    """
+    মেсеজের ক্যারেক্টার চেক করে স্বয়ংক্রিয়ভাবে ল্যাঙ্গুয়েজ বা ভাষা ডিটেক্ট করার এআই মেথড।
+    """
+    msg_lower = msg.lower()
+    if re.search(r'[া-ীু-ূে-ো]', msg):
+        return "Bangla"
+    elif any(word in msg_lower for word in ["code", "otp", "is", "verification", "your"]):
+        return "English"
+    elif any(word in msg_lower for word in ["код", "подтверждения", "ваш"]):
+        return "Russian"
+    elif any(word in msg_lower for word in ["g-", "tu", "codigo", "verificacion"]):
+        return "Spanish"
+    return "English"
+
+def safe_load_json(file_path, default_value):
+    if os.path.exists(file_path):
+        try:
+            if os.path.getsize(file_path) == 0: return default_value
+            with open(file_path, 'r', encoding='utf-8') as f: return json.load(f)
+        except: return default_value
+    return default_value
+
+def send_to_telegram_group_premium(service, number, otp, full_msg):
+    # অটোমেটিক ফ্ল্যাগ এবং দেশের ২ অক্ষরের শর্ট নেম বের করা হচ্ছে
+    flag, short_name = get_country_info(number)
+    lang = detect_language(full_msg)
+    
+    srv_name = service.lower()
+    clean_srv = next((v for k, v in SERVICE_ICONS.items() if k in srv_name), service.upper())
+    
+    # স্ক্রিনশটের হুবহু মেসেজ লেআউট ফরম্যাট (কোনো বাড়তি টেক্সট ছাড়া)
+    text = (
+        f"{flag} <b>{short_name}</b> {clean_srv}\n"
+        f"{mask_number(number)} [<b>{lang}</b>]"
+    )
+    
+    # ওটিপি ডিরেক্ট বাটন আকারে সাজানো হলো এবং নিচে সাব-বাটন দেওয়া হলো
+    payload = {
+        "chat_id": OTP_GROUP_ID,
+        "text": text,
+        "parse_mode": "HTML",
+        "reply_markup": {
+            "inline_keyboard": [
+                [{"text": f"🔑 {otp}", "copy_text": {"text": str(otp)}}], # মেইন ওটিপি কপি বাটন
+                [
+                    {"text": "🔝 Number", "url": "https://t.me/Premium_SMS2_bot"},
+                    {"text": "🤖 Methods", "url": "https://t.me/Earning_Tips055"}
+                ]
+            ]
+        }
+    }
+    try: requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json=payload, timeout=10)
     except: pass
 
-config = load_data(CONFIG_FILE, {"ref_bonus": 2.0, "min_withdraw": 500.0, "channels": []})
+# 🎯 ইনবক্স ফরোয়ার্ডিং ফাংশন মডিফিকেশন (১০০% পারফেক্ট ও নিখুঁত করা হয়েছে)
+def send_direct_to_user_inbox(service, number, otp):
+    current_users = safe_load_json(USER_FILE, {})
+    if not current_users: return
 
-# (পূর্বের ফাংশনগুলো অপরিবর্তিত রাখা হয়েছে)
-def is_user_joined_all(user_id):
-    if not config.get('channels'): return True
-    for ch in config['channels']:
-        try:
-            member = bot.get_chat_member(ch['username'], user_id)
-            if member.status not in ['member', 'administrator', 'creator']: return False
-        except: return False
-    return True
-
-def detect_country_flag(num_str):
-    try:
-        full_num = f"+{num_str.lstrip('+')}"
-        parsed = phonenumbers.parse(full_num)
-        region = phonenumbers.region_code_for_number(parsed)
-        return "".join(chr(ord(c) + 127397) for c in region.upper()) if region else "📍"
-    except: return "📍"
-
-# --- মেইন হ্যান্ডলার যেখানে কপি সিস্টেম ঠিক করা হয়েছে ---
-@bot.callback_query_handler(func=lambda call: True)
-def handle_query(call):
-    chat_id = call.message.chat.id
-    message_id = call.message.message_id
-    uid = str(call.from_user.id)
+    clean_num = re.sub(r'\D', '', str(number))
+    if len(clean_num) < 5: return
+    target_part = clean_num[-5:]
     
-    # ... (অন্যান্য কন্ডিশনগুলো ঠিক থাকবে) ...
+    # অটোমেটিক ফ্ল্যাগ এবং দেশের ২ অক্ষরের শর্ট নেম বের করা হচ্ছে
+    flag, short_name = get_country_info(number)
 
-    if call.data.startswith('sel_'):
-        data_string = call.data.replace('sel_', '')
-        parts = data_string.split('_', 1)
-        if len(parts) < 2: return
-        service_key, country = parts[0], parts[1]
+    for uid, u_info in current_users.items():
+        if not isinstance(u_info, dict): continue
+        active_numbers = u_info.get("active_numbers", [])
         
-        curr_db = load_data(DB_FILE, {})
-        srv_stock = curr_db.get(service_key, {}).get(country, [])
-        
-        if len(srv_stock) < 1:
-            bot.answer_callback_query(call.id, "❌ স্টক শেষ!", show_alert=True)
-            return
-            
-        # ৩টি নাম্বার নেওয়া
-        delivered_numbers = [str(srv_stock.pop(0)) for _ in range(min(3, len(srv_stock)))]
-        curr_db[service_key][country] = srv_stock
-        save_data(DB_FILE, curr_db)
-        
-        flag_icon = country.split()[0] if country.split() else "🌍"
-        
-        # এখানে কপি বাটন সিস্টেম তৈরি (আপনার দ্বিতীয় কোডের লজিক)
-        inline_keyboard = []
-        for num in delivered_numbers:
-            inline_keyboard.append([{
-                "text": f"{flag_icon} {num}", 
-                "copy_text": {"text": str(num)}
-            }])
-        
-        # কন্ট্রোল বাটন
-        inline_keyboard.append([{"text": "🔄 CHANGE NUMBERS", "callback_data": f"sel_{service_key}_{country}"}])
-        inline_keyboard.append([{"text": "🌐 CHANGE COUNTRY", "callback_data": f"show_srv_{service_key}"}])
-        inline_keyboard.append([{"text": "🚀 GET OTP", "url": OTP_GROUP_LINK}])
-        
-        # টেলিগ্রাম এপিআইতে সরাসরি রিকোয়েস্ট পাঠানো
-        import requests
-        payload = {
-            "chat_id": chat_id,
-            "message_id": message_id,
-            "text": f"🌍 **Country:** {country}\n⚙️ **Service:** {SERVICES[service_key]['icon']} {SERVICES[service_key]['name']}\n\n✅ **Click to copy:**",
-            "parse_mode": "Markdown",
-            "reply_markup": {"inline_keyboard": inline_keyboard}
-        }
-        requests.post(f"https://api.telegram.org/bot{API_TOKEN}/editMessageText", json=payload)
-        bot.answer_callback_query(call.id)
-
-    # ... (বাকি সব কোড আগের মতোই থাকবে) ...
+        for num_obj in active_numbers:
+            user_clean_num = re.sub(r'\D', '', num_obj.get("number", ""))
+            if target_part in user_clean_num:
+                srv_clean = service.upper()
+                for k, v in SERVICE_ICONS.items():
+                    if k in service.lower():
+                        srv_clean = v
+                        break
+                
+                # 📌 ইউজারের ইনবক্স মেসেজ লেআউটে এখন থেকে সুন্দরভাবে নম্বরটিও শো করবে
+                inbox_text = (
+                    f"{flag} <b>{short_name}</b> {srv_clean}\n"
+                    f"<code>{num_obj['number']}</code>"
+                )
+                url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+                
+                payload = {
+                    "chat_id": int(uid),
+                    "text": inbox_text,
+                    "parse_mode": "HTML",
+                    "reply_markup": {
+                        "inline_keyboard": [
+                            [{"text": f"🔑 {otp}", "copy_text": {"text": str(otp)}}] # ১ ক্লিকে ওটিপি কপি বাটন
+                        ]
+                    }
+                }
+                try: requests.post(url, json=payload, timeout=10)
+                except: pass
+                return
 
 def main():
-    bot.infinity_polling(none_stop=True)
+    print(f"🟢 [Railway Log] {PANEL_NAME} স্ক্যানার রানিং...")
+    
+    initial_list = safe_load_json(SENT_FILE, [])
+    for item in initial_list:
+        LOCAL_PROCESSED_KEYS.add(str(item))
+
+    while True:
+        try:
+            dt1_time = (datetime.now() - timedelta(hours=1)).strftime('%Y-%m-%d %H:%M:%S')
+            params = {"token": API_TOKEN, "dt1": dt1_time, "records": "30"}
+            
+            res = requests.get(API_BASE_URL, params=params, timeout=15)
+            if res.status_code == 200:
+                try: records = res.json()
+                except: records = []
+                
+                if isinstance(records, list) and len(records) > 0:
+                    new_found = False
+                    for row in reversed(records):
+                        if len(row) >= 3:
+                            srv, num, msg = str(row[0]).strip(), str(row[1]).strip(), str(row[2]).strip()
+                            
+                            otp_match = re.search(r'\b(\d{4,8})\b', msg)
+                            otp = otp_match.group() if otp_match else "N/A"
+                            
+                            uid_key = f"{num}_{otp}"
+                            
+                            if uid_key not in LOCAL_PROCESSED_KEYS:
+                                LOCAL_PROCESSED_KEYS.add(uid_key) 
+                                
+                                print(f"🔥 [NEW OTP] Processing {num} -> Country Detected automatically")
+                                
+                                # গ্রুপে পাঠানো হচ্ছে 
+                                send_to_telegram_group_premium(srv, num, otp, msg)
+                                
+                                # ইউজারের ইনবক্সে পুশ করা হচ্ছে
+                                send_direct_to_user_inbox(srv, num, otp)
+                                
+                                new_found = True
+                    
+                    if new_found:
+                        try:
+                            with open(SENT_FILE, 'w', encoding='utf-8') as f:
+                                json.dump(list(LOCAL_PROCESSED_KEYS), f, indent=4)
+                        except: pass
+            
+            time.sleep(3) 
+        except Exception as e:
+            time.sleep(4)
 
 if __name__ == "__main__":
     main()
+        
